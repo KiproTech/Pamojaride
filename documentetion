@@ -1,0 +1,1056 @@
+ const {
+  Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
+  HeadingLevel, AlignmentType, BorderStyle, WidthType, ShadingType,
+  PageBreak, LevelFormat, PageNumber, Header, Footer, TabStopType,
+  TabStopPosition
+} = require('docx');
+const fs = require('fs');
+
+// ─── helpers ────────────────────────────────────────────────────────────────
+const C = {
+  teal:       '0E7490',
+  tealDark:   '155E75',
+  tealLight:  'CFFAFE',
+  tealXLight: 'F0FDFF',
+  accent:     'F97316',
+  accentLight:'FFEDD5',
+  green:      '16A34A',
+  greenLight: 'DCFCE7',
+  danger:     'EF4444',
+  dangerLight:'FEE2E2',
+  amber:      'F59E0B',
+  amberLight: 'FEF3C7',
+  text:       '0F172A',
+  muted:      '64748B',
+  border:     'E2E8F0',
+  bgAlt:      'F8FAFC',
+  white:      'FFFFFF',
+  gray:       '334155',
+};
+
+const CONTENT_W = 9360; // US Letter 1-inch margins
+
+const border = (color = C.border) => ({ style: BorderStyle.SINGLE, size: 1, color });
+const borders = (color = C.border) => ({
+  top: border(color), bottom: border(color),
+  left: border(color), right: border(color)
+});
+const noBorders = () => {
+  const nb = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
+  return { top: nb, bottom: nb, left: nb, right: nb };
+};
+
+function h1(text) {
+  return new Paragraph({
+    heading: HeadingLevel.HEADING_1,
+    spacing: { before: 360, after: 120 },
+    children: [new TextRun({ text, font: 'Arial', size: 36, bold: true, color: C.tealDark })]
+  });
+}
+function h2(text) {
+  return new Paragraph({
+    heading: HeadingLevel.HEADING_2,
+    spacing: { before: 280, after: 100 },
+    children: [new TextRun({ text, font: 'Arial', size: 28, bold: true, color: C.teal })]
+  });
+}
+function h3(text) {
+  return new Paragraph({
+    heading: HeadingLevel.HEADING_3,
+    spacing: { before: 220, after: 80 },
+    children: [new TextRun({ text, font: 'Arial', size: 24, bold: true, color: C.gray })]
+  });
+}
+function body(text, opts = {}) {
+  return new Paragraph({
+    spacing: { before: 60, after: 100 },
+    children: [new TextRun({ text, font: 'Arial', size: 22, color: C.text, ...opts })]
+  });
+}
+function bodyMixed(runs) {
+  return new Paragraph({
+    spacing: { before: 60, after: 100 },
+    children: runs.map(r => new TextRun({ font: 'Arial', size: 22, color: C.text, ...r }))
+  });
+}
+function spacer(lines = 1) {
+  return Array.from({ length: lines }, () => new Paragraph({ spacing: { before: 0, after: 60 }, children: [new TextRun('')] }));
+}
+function bullet(text, level = 0, bold = false) {
+  return new Paragraph({
+    numbering: { reference: 'bullets', level },
+    spacing: { before: 40, after: 40 },
+    children: [new TextRun({ text, font: 'Arial', size: 22, color: C.text, bold })]
+  });
+}
+function numbered(text, level = 0) {
+  return new Paragraph({
+    numbering: { reference: 'numbers', level },
+    spacing: { before: 40, after: 40 },
+    children: [new TextRun({ text, font: 'Arial', size: 22, color: C.text })]
+  });
+}
+function divider() {
+  return new Paragraph({
+    spacing: { before: 160, after: 160 },
+    border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: C.border } },
+    children: [new TextRun('')]
+  });
+}
+function pageBreak() {
+  return new Paragraph({ children: [new PageBreak()] });
+}
+function label(text, bgColor, textColor) {
+  return new Paragraph({
+    spacing: { before: 80, after: 80 },
+    shading: { fill: bgColor, type: ShadingType.CLEAR },
+    children: [new TextRun({ text: '  ' + text + '  ', font: 'Arial', size: 20, bold: true, color: textColor })]
+  });
+}
+
+// ─── two-column table helper ─────────────────────────────────────────────────
+function twoColTable(rows, col1W = 3000, col2W = 6360) {
+  return new Table({
+    width: { size: CONTENT_W, type: WidthType.DXA },
+    columnWidths: [col1W, col2W],
+    rows: rows.map(([left, right]) => new TableRow({
+      children: [
+        new TableCell({
+          borders: borders(C.border),
+          width: { size: col1W, type: WidthType.DXA },
+          shading: { fill: C.bgAlt, type: ShadingType.CLEAR },
+          margins: { top: 80, bottom: 80, left: 120, right: 120 },
+          children: [new Paragraph({ children: [new TextRun({ text: left, font: 'Arial', size: 20, bold: true, color: C.tealDark })] })]
+        }),
+        new TableCell({
+          borders: borders(C.border),
+          width: { size: col2W, type: WidthType.DXA },
+          margins: { top: 80, bottom: 80, left: 120, right: 120 },
+          children: [new Paragraph({ children: [new TextRun({ text: right, font: 'Arial', size: 20, color: C.text })] })]
+        })
+      ]
+    }))
+  });
+}
+
+// ─── header row table helper ─────────────────────────────────────────────────
+function headerTable(headers, rows, colWidths) {
+  const total = colWidths.reduce((a, b) => a + b, 0);
+  const headerRow = new TableRow({
+    children: headers.map((h, i) => new TableCell({
+      borders: borders(C.teal),
+      width: { size: colWidths[i], type: WidthType.DXA },
+      shading: { fill: C.teal, type: ShadingType.CLEAR },
+      margins: { top: 80, bottom: 80, left: 120, right: 120 },
+      children: [new Paragraph({ children: [new TextRun({ text: h, font: 'Arial', size: 20, bold: true, color: C.white })] })]
+    }))
+  });
+  const dataRows = rows.map((row, ri) => new TableRow({
+    children: row.map((cell, ci) => new TableCell({
+      borders: borders(C.border),
+      width: { size: colWidths[ci], type: WidthType.DXA },
+      shading: { fill: ri % 2 === 0 ? C.white : C.bgAlt, type: ShadingType.CLEAR },
+      margins: { top: 80, bottom: 80, left: 120, right: 120 },
+      children: [new Paragraph({ children: [new TextRun({ text: cell, font: 'Arial', size: 20, color: C.text })] })]
+    }))
+  }));
+  return new Table({
+    width: { size: total, type: WidthType.DXA },
+    columnWidths: colWidths,
+    rows: [headerRow, ...dataRows]
+  });
+}
+
+// ─── callout box ────────────────────────────────────────────────────────────
+function callout(title, lines, bgColor = C.tealXLight, borderColor = C.teal, titleColor = C.tealDark) {
+  const rows = [
+    new TableRow({
+      children: [new TableCell({
+        borders: { top: border(borderColor), bottom: border(borderColor), left: { style: BorderStyle.SINGLE, size: 12, color: borderColor }, right: border(borderColor) },
+        width: { size: CONTENT_W, type: WidthType.DXA },
+        shading: { fill: bgColor, type: ShadingType.CLEAR },
+        margins: { top: 100, bottom: 100, left: 160, right: 160 },
+        children: [
+          new Paragraph({ spacing: { before: 0, after: 80 }, children: [new TextRun({ text: title, font: 'Arial', size: 22, bold: true, color: titleColor })] }),
+          ...lines.map(l => new Paragraph({ spacing: { before: 30, after: 30 }, children: [new TextRun({ text: l, font: 'Arial', size: 20, color: C.text })] }))
+        ]
+      })]
+    })
+  ];
+  return new Table({ width: { size: CONTENT_W, type: WidthType.DXA }, columnWidths: [CONTENT_W], rows });
+}
+
+// ─── cover page ─────────────────────────────────────────────────────────────
+function coverPage() {
+  return [
+    ...spacer(4),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 0, after: 40 },
+      children: [new TextRun({ text: 'PamojaRide', font: 'Arial', size: 72, bold: true, color: C.teal })]
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 0, after: 60 },
+      children: [new TextRun({ text: 'Platform Architecture & Build Documentation', font: 'Arial', size: 32, color: C.accent })]
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: C.teal } },
+      spacing: { before: 0, after: 60 },
+      children: [new TextRun('')]
+    }),
+    ...spacer(1),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 40, after: 20 },
+      children: [new TextRun({ text: 'Kenya\'s Intercity Ride-Sharing Marketplace', font: 'Arial', size: 26, color: C.muted })]
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 0, after: 20 },
+      children: [new TextRun({ text: 'Complete System Design · Architecture · Build Roadmap', font: 'Arial', size: 22, color: C.muted })]
+    }),
+    ...spacer(2),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 0, after: 20 },
+      children: [new TextRun({ text: 'Version 1.0  ·  Phase 1 – Core Platform', font: 'Arial', size: 20, color: C.muted })]
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 0, after: 20 },
+      children: [new TextRun({ text: 'May 2026', font: 'Arial', size: 20, color: C.muted })]
+    }),
+    pageBreak()
+  ];
+}
+
+// ─── DOCUMENT BODY ──────────────────────────────────────────────────────────
+const doc = new Document({
+  numbering: {
+    config: [
+      { reference: 'bullets', levels: [
+        { level: 0, format: LevelFormat.BULLET, text: '•', alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 720, hanging: 360 } } } },
+        { level: 1, format: LevelFormat.BULLET, text: '◦', alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 1080, hanging: 360 } } } },
+      ]},
+      { reference: 'numbers', levels: [
+        { level: 0, format: LevelFormat.DECIMAL, text: '%1.', alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 720, hanging: 360 } } } },
+        { level: 1, format: LevelFormat.DECIMAL, text: '%1.%2.', alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 1080, hanging: 360 } } } },
+      ]},
+    ]
+  },
+  styles: {
+    default: { document: { run: { font: 'Arial', size: 22 } } },
+    paragraphStyles: [
+      { id: 'Heading1', name: 'Heading 1', basedOn: 'Normal', next: 'Normal', quickFormat: true,
+        run: { size: 36, bold: true, font: 'Arial', color: C.tealDark },
+        paragraph: { spacing: { before: 360, after: 120 }, outlineLevel: 0 } },
+      { id: 'Heading2', name: 'Heading 2', basedOn: 'Normal', next: 'Normal', quickFormat: true,
+        run: { size: 28, bold: true, font: 'Arial', color: C.teal },
+        paragraph: { spacing: { before: 280, after: 100 }, outlineLevel: 1 } },
+      { id: 'Heading3', name: 'Heading 3', basedOn: 'Normal', next: 'Normal', quickFormat: true,
+        run: { size: 24, bold: true, font: 'Arial', color: C.gray },
+        paragraph: { spacing: { before: 220, after: 80 }, outlineLevel: 2 } },
+    ]
+  },
+  sections: [{
+    properties: {
+      page: {
+        size: { width: 12240, height: 15840 },
+        margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 }
+      }
+    },
+    headers: {
+      default: new Header({
+        children: [
+          new Paragraph({
+            border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: C.border } },
+            spacing: { before: 0, after: 80 },
+            children: [
+              new TextRun({ text: 'PamojaRide', font: 'Arial', size: 20, bold: true, color: C.teal }),
+              new TextRun({ text: '  ·  Platform Architecture & Build Documentation', font: 'Arial', size: 18, color: C.muted }),
+            ]
+          })
+        ]
+      })
+    },
+    footers: {
+      default: new Footer({
+        children: [
+          new Paragraph({
+            border: { top: { style: BorderStyle.SINGLE, size: 4, color: C.border } },
+            spacing: { before: 80, after: 0 },
+            tabStops: [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX }],
+            children: [
+              new TextRun({ text: 'Confidential — Internal Build Document', font: 'Arial', size: 18, color: C.muted }),
+              new TextRun({ text: '\tPage ', font: 'Arial', size: 18, color: C.muted }),
+              new PageNumber(),
+            ]
+          })
+        ]
+      })
+    },
+    children: [
+
+      // ── COVER ──────────────────────────────────────────────────────────────
+      ...coverPage(),
+
+      // ── 1. EXECUTIVE SUMMARY ───────────────────────────────────────────────
+      h1('1. Executive Summary'),
+      body('PamojaRide is a Kenya-first intercity ride-sharing marketplace — BlaBlaCar meets Bolt for scheduled shared trips. Drivers post routes; passengers book individual seats; payments flow via M-Pesa. The platform is designed for the African market: offline-tolerant, M-Pesa native, Swahili-friendly, and built to operate where infrastructure is unreliable.'),
+      body('This document covers the complete system architecture, the dual-onboarding strategy, the five-phase build roadmap, the database schema, the security and fraud-prevention model, and every major technical and operational decision.'),
+      ...spacer(1),
+      callout('Core product principle', [
+        'Build a stable, secure, scalable transport marketplace first.',
+        'Payment and escrow systems are added only after every marketplace workflow is tested and proven.',
+        'The platform must work correctly with zero real money moving before a single shilling is processed.',
+      ]),
+      ...spacer(1),
+      h2('1.1 Market Context'),
+      body('Kenya has a massive intercity transport demand served by matatus, buses, and private taxis. The shared-ride model is culturally familiar but disorganised. PamojaRide brings structure: verified drivers, pre-booked seats, transparent pricing, and digital payments — all in a mobile-first interface calibrated for Kenyan network conditions.'),
+      ...spacer(1),
+      headerTable(
+        ['Dimension', 'Detail'],
+        [
+          ['Primary market', 'Kenya — Nairobi, Mombasa, Kisumu, Nakuru, Eldoret corridors'],
+          ['Business model', 'Platform commission on each completed trip (target 10–15%)'],
+          ['Payment method', 'M-Pesa STK Push (Phase 3+) · Mock payments (Phase 1–2)'],
+          ['Target drivers', 'Private car owners, ex-matatu operators, taxi drivers'],
+          ['Target passengers', 'Frequent intercity travellers, professionals, students'],
+          ['Tech stack', 'React 18 + Vite · Supabase · M-Pesa Daraja API · Leaflet.js'],
+        ],
+        [2600, 6760]
+      ),
+      pageBreak(),
+
+      // ── 2. HOW THE SYSTEM WORKS ─────────────────────────────────────────────
+      h1('2. How the System Works'),
+      body('PamojaRide operates as a two-sided marketplace. The two roles — driver and passenger — have entirely different onboarding experiences, dashboards, permissions, and trust requirements. They share the same Supabase database, the same authentication system, and the same real-time notification layer, but interact with the platform through completely separate user journeys.'),
+      ...spacer(1),
+      h2('2.1 The Core Trip Loop'),
+      body('The fundamental flow that makes PamojaRide work is a five-step cycle that repeats for every trip:'),
+      ...spacer(1),
+      numbered('Driver posts a trip — origin, destination, departure datetime, total seats, price per seat, optional notes.'),
+      numbered('Passenger searches for trips — filters by route, date, and seat count. Results show driver rating, vehicle type, and price.'),
+      numbered('Passenger books a seat — selects seat count, triggers M-Pesa STK Push (or mock payment in Phase 1). The book_seats() RPC atomically reserves the seat and creates the booking row.'),
+      numbered('Trip lifecycle — driver starts the trip (active → ongoing), then marks it complete (ongoing → completed). Postgres triggers fire notifications to all passengers at each transition.'),
+      numbered('Rating and payout — passengers rate the driver. Funds held in escrow are released to the driver after the dispute window closes (Phase 4+).'),
+      ...spacer(1),
+      h2('2.2 User Roles'),
+      body('Two roles share one profiles table, differentiated by the role column. Each role has completely separate navigation, features, and access controls enforced at both the RLS (Row Level Security) policy level and the React router level.'),
+      ...spacer(1),
+      headerTable(
+        ['Role', 'Core Actions', 'Restrictions'],
+        [
+          ['passenger', 'Search trips, book seats, pay, rate drivers, view booking history', 'Cannot post trips, cannot access driver dashboard'],
+          ['driver', 'Post trips, manage bookings, start/complete trips, view earnings', 'Must be verified before posting; trust limits apply to new drivers'],
+          ['admin', 'Review driver applications, manage disputes, approve payouts, suspend accounts', 'Internal role — never exposed in the public-facing app'],
+        ],
+        [2000, 4200, 3160]
+      ),
+      ...spacer(1),
+      h2('2.3 Route Templates — the "I\'m heading to X" Feature'),
+      body('Drivers who travel the same route regularly should not have to fill a trip creation form every time. Route templates let a driver define a recurring pattern: origin, destination, departure time, days of week, seats, and price. A Supabase pg_cron job runs every night at midnight EAT, scans all active templates, and inserts trip rows for the next 7 days if they do not already exist.'),
+      body('The driver sees a "Scheduled trips this week" section on their dashboard and can edit or cancel individual instances without touching the template. This dramatically reduces driver friction for the most loyal users — the ones who drive the same route every Monday and Friday.'),
+      ...spacer(1),
+      callout('Route template schema (key fields)', [
+        'driver_id · origin · destination · departure_time (time of day, not timestamp)',
+        'days_of_week (integer array: 0=Sunday, 1=Monday … 6=Saturday)',
+        'price_per_seat · seats · advance_days (how far ahead to auto-create, default 7)',
+        'active (boolean — driver can pause without deleting the template)',
+      ], C.tealXLight, C.teal, C.tealDark),
+      pageBreak(),
+
+      // ── 3. ARCHITECTURE ─────────────────────────────────────────────────────
+      h1('3. System Architecture'),
+      h2('3.1 Technology Stack'),
+      body('Every technology choice is justified by the target market and operational context, not by trend or familiarity.'),
+      ...spacer(1),
+      headerTable(
+        ['Layer', 'Technology', 'Why this choice'],
+        [
+          ['Frontend', 'React 18 + Vite', 'Fast HMR in dev; small production bundle; wide ecosystem'],
+          ['Routing', 'React Router v6', 'Nested routes enable role-based layout wrapping cleanly'],
+          ['Styling', 'Plain CSS with design tokens', 'No build-time dependency; tokens ensure brand consistency'],
+          ['Database', 'Supabase (PostgreSQL)', 'Managed Postgres + RLS + Auth + Realtime + Storage in one service'],
+          ['Authentication', 'Supabase Auth (JWT)', 'Built-in session management; OTP support; social login providers'],
+          ['File storage', 'Supabase Storage', 'KYC documents in private bucket; avatars in public bucket'],
+          ['Real-time', 'Supabase Realtime', 'WebSocket channels for live booking notifications and trip status'],
+          ['Payments', 'Safaricom Daraja API', 'M-Pesa is the dominant payment method in Kenya (>90% penetration)'],
+          ['Maps', 'Leaflet.js + OpenStreetMap', 'Free; no API key limits; works offline with tile caching'],
+          ['Edge functions', 'Supabase Edge Functions (Deno)', 'Serverless; secret management; no separate backend required'],
+          ['Fonts', 'Plus Jakarta Sans + Syne', 'Modern African-friendly typography; free via Google Fonts'],
+          ['Language', 'JavaScript (no TypeScript)', 'Faster iteration in early phases; can migrate later'],
+        ],
+        [1800, 2400, 5160]
+      ),
+      ...spacer(1),
+      h2('3.2 Architecture Diagram — System Layers'),
+      body('The system is organised into four layers. Each layer has a single responsibility and communicates with adjacent layers through well-defined interfaces.'),
+      ...spacer(1),
+      headerTable(
+        ['Layer', 'Components', 'Communication'],
+        [
+          ['Client (Browser/Mobile)', 'React SPA · React Router · CSS design system', 'HTTPS to Supabase REST & WebSocket'],
+          ['Edge (Serverless)', 'Supabase Edge Functions: mpesa-stk-push, mpesa-callback, send-otp, recalculate-trust', 'Called by client or Postgres webhooks'],
+          ['Platform (Supabase)', 'PostgreSQL · Auth · Realtime · Storage · pg_cron', 'Internal; exposed via JS client SDK'],
+          ['External APIs', 'Safaricom Daraja (M-Pesa) · Africa\'s Talking (SMS OTP) · Smile Identity (KYC)', 'Called from Edge Functions only — never from client'],
+        ],
+        [2400, 3760, 3200]
+      ),
+      ...spacer(1),
+      h2('3.3 Security Model'),
+      body('Security is enforced at three independent layers. A vulnerability in one layer does not compromise the others.'),
+      ...spacer(1),
+      bullet('Row Level Security (RLS) — every table has RLS enabled. Policies are defined in SQL and enforced by PostgreSQL itself, not application code. A passenger cannot read another passenger\'s bookings. A driver cannot see bookings on another driver\'s trips. An admin can read everything.', 0),
+      bullet('JWT authentication — every request from the client includes a Supabase JWT. RLS policies use auth.uid() to identify the caller. Tokens expire and are refreshed automatically by the Supabase JS client.', 0),
+      bullet('Edge Function secrets — API keys (Daraja, OTP provider, Smile Identity) are stored as Supabase Edge Function secrets, never in the client bundle and never in environment variables committed to version control.', 0),
+      bullet('Private storage bucket — KYC documents (ID scans, selfies, licence photos) are stored in a private Supabase Storage bucket. Only admin-role users can generate signed URLs for these files. Signed URLs expire after 1 hour.', 0),
+      bullet('Input validation — all form inputs are validated client-side before submission and re-validated in Postgres CHECK constraints and Edge Function logic. Never trust client data.', 0),
+      bullet('Rate limiting — OTP requests, login attempts, and booking submissions are rate-limited at the Edge Function level using a rate_limits table with TTL-based cleanup.', 0),
+      pageBreak(),
+
+      // ── 4. DATABASE SCHEMA ──────────────────────────────────────────────────
+      h1('4. Database Schema'),
+      body('The database is the single source of truth for the entire platform. Every state transition, every booking, every payment, and every trust calculation flows through it. The schema is designed now for the full Phase 5 feature set, even though most columns are unused in Phase 1. This eliminates dangerous live migrations later.'),
+      ...spacer(1),
+      h2('4.1 Core Tables'),
+      ...spacer(1),
+      h3('profiles'),
+      body('Extends auth.users. One row per user. The role column determines which dashboard and features the user sees. All driver-specific columns are nullable for passengers.'),
+      ...spacer(1),
+      twoColTable([
+        ['id', 'uuid PK — references auth.users(id)'],
+        ['full_name', 'text NOT NULL'],
+        ['email', 'text NOT NULL'],
+        ['phone', 'text NOT NULL — normalised to E.164 (+254XXXXXXXXX)'],
+        ['role', 'text CHECK IN (passenger, driver, admin)'],
+        ['verification_status', 'text — pending_verification · under_review · verified · rejected · suspended · banned'],
+        ['phone_verified', 'boolean DEFAULT false'],
+        ['account_source', 'text — email_password · otp · google'],
+        ['profile_picture', 'text — public URL from avatars storage bucket'],
+        ['kyc_documents', 'jsonb — paths to KYC files in private storage bucket'],
+        ['kyc_submitted_at', 'timestamptz'],
+        ['kyc_approved_at', 'timestamptz'],
+        ['kyc_approved_by', 'uuid — FK to profiles (admin who approved)'],
+        ['trust_level', 'integer 1–5 DEFAULT 1 (drivers only)'],
+        ['max_seats_per_trip', 'integer DEFAULT 2 (drivers only)'],
+        ['max_active_trips', 'integer DEFAULT 1 (drivers only)'],
+        ['payout_delay_hours', 'integer DEFAULT 48 (drivers only)'],
+        ['trips_completed', 'integer DEFAULT 0'],
+        ['dispute_count', 'integer DEFAULT 0'],
+        ['vehicle_make', 'text — Toyota, Mazda, etc.'],
+        ['vehicle_model', 'text — Fielder, Axio, etc.'],
+        ['vehicle_plate', 'text — e.g. KCB 234X'],
+        ['vehicle_seats', 'integer — excludes driver'],
+        ['emergency_contact_name', 'text'],
+        ['emergency_contact_phone', 'text'],
+        ['flagged_for_review', 'boolean DEFAULT false'],
+        ['suspension_reason', 'text'],
+        ['last_login_at', 'timestamptz'],
+        ['created_at', 'timestamptz DEFAULT now()'],
+      ], 2400, 6960),
+      ...spacer(1),
+      h3('trips'),
+      twoColTable([
+        ['id', 'uuid PK DEFAULT gen_random_uuid()'],
+        ['driver_id', 'uuid FK → profiles(id)'],
+        ['route_template_id', 'uuid FK → route_templates(id) — nullable'],
+        ['start_location', 'text NOT NULL'],
+        ['end_location', 'text NOT NULL'],
+        ['start_coordinates', 'point — latitude/longitude for GPS completion (Phase 5)'],
+        ['end_coordinates', 'point — latitude/longitude for GPS completion (Phase 5)'],
+        ['departure_datetime', 'timestamptz NOT NULL — stored as UTC, displayed as EAT'],
+        ['seats_total', 'integer NOT NULL'],
+        ['seats_available', 'integer NOT NULL — decremented by book_seats() RPC only'],
+        ['price_per_seat', 'numeric NOT NULL'],
+        ['status', 'text — active · ongoing · completed · cancelled'],
+        ['notes', 'text — driver-provided trip notes'],
+        ['cancellation_reason', 'text'],
+        ['started_at', 'timestamptz'],
+        ['completed_at', 'timestamptz'],
+        ['created_at', 'timestamptz DEFAULT now()'],
+      ], 2400, 6960),
+      ...spacer(1),
+      h3('bookings'),
+      twoColTable([
+        ['id', 'uuid PK DEFAULT gen_random_uuid()'],
+        ['trip_id', 'uuid FK → trips(id)'],
+        ['passenger_id', 'uuid FK → profiles(id)'],
+        ['seats_booked', 'integer NOT NULL DEFAULT 1'],
+        ['amount_paid', 'numeric NOT NULL'],
+        ['status', 'text — pending · confirmed · cancelled · completed'],
+        ['payment_status', 'text — unpaid · pending_mock · paid_mock · completed · refunded'],
+        ['mpesa_ref', 'text — M-Pesa CheckoutRequestID (Phase 3+)'],
+        ['cancellation_policy', 'jsonb — refund % at time of booking snapshot'],
+        ['cancelled_at', 'timestamptz'],
+        ['cancelled_by', 'uuid FK → profiles(id)'],
+        ['created_at', 'timestamptz DEFAULT now()'],
+      ], 2400, 6960),
+      ...spacer(1),
+      h3('route_templates'),
+      twoColTable([
+        ['id', 'uuid PK'],
+        ['driver_id', 'uuid FK → profiles(id)'],
+        ['origin', 'text NOT NULL'],
+        ['destination', 'text NOT NULL'],
+        ['departure_time', 'time NOT NULL — time of day, e.g. 06:30'],
+        ['days_of_week', 'integer[] — e.g. {1,5} for Monday + Friday'],
+        ['price_per_seat', 'numeric NOT NULL'],
+        ['seats', 'integer NOT NULL'],
+        ['advance_days', 'integer DEFAULT 7 — create trips this many days ahead'],
+        ['active', 'boolean DEFAULT true'],
+        ['created_at', 'timestamptz DEFAULT now()'],
+      ], 2400, 6960),
+      ...spacer(1),
+      h3('notifications'),
+      twoColTable([
+        ['id', 'uuid PK'],
+        ['user_id', 'uuid FK → profiles(id)'],
+        ['title', 'text NOT NULL'],
+        ['message', 'text NOT NULL'],
+        ['type', 'text — booking · trip · payment · system · kyc'],
+        ['read', 'boolean DEFAULT false'],
+        ['created_at', 'timestamptz DEFAULT now()'],
+      ], 2400, 6960),
+      ...spacer(1),
+      h3('ratings'),
+      twoColTable([
+        ['id', 'uuid PK'],
+        ['trip_id', 'uuid FK → trips(id)'],
+        ['booking_id', 'uuid UNIQUE FK → bookings(id) — one rating per booking'],
+        ['passenger_id', 'uuid FK → profiles(id)'],
+        ['driver_id', 'uuid FK → profiles(id)'],
+        ['rating', 'integer CHECK BETWEEN 1 AND 5'],
+        ['comment', 'text'],
+        ['created_at', 'timestamptz DEFAULT now()'],
+      ], 2400, 6960),
+      ...spacer(1),
+      h3('reports'),
+      twoColTable([
+        ['id', 'uuid PK'],
+        ['reporter_id', 'uuid FK → profiles(id)'],
+        ['reported_id', 'uuid FK → profiles(id)'],
+        ['trip_id', 'uuid FK → trips(id) — nullable'],
+        ['reason', 'text NOT NULL'],
+        ['status', 'text — open · under_review · resolved · dismissed'],
+        ['admin_notes', 'text'],
+        ['created_at', 'timestamptz DEFAULT now()'],
+      ], 2400, 6960),
+      ...spacer(1),
+      h3('audit_logs'),
+      body('Every significant state change writes a row here. This is non-negotiable from day one — even before real payments. It provides the forensic trail needed for dispute resolution and fraud investigation.'),
+      twoColTable([
+        ['id', 'uuid PK'],
+        ['entity_type', 'text — trip · booking · profile · payment · payout'],
+        ['entity_id', 'uuid — the ID of the affected row'],
+        ['action', 'text — e.g. trip_started · booking_confirmed · driver_suspended'],
+        ['performed_by', 'uuid FK → profiles(id)'],
+        ['old_state', 'jsonb — snapshot of the row before the change'],
+        ['new_state', 'jsonb — snapshot of the row after the change'],
+        ['ip_address', 'text'],
+        ['created_at', 'timestamptz DEFAULT now()'],
+      ], 2400, 6960),
+      ...spacer(1),
+      h2('4.2 Payment Architecture Tables (Phase 2)'),
+      body('These tables are created in Phase 2 but their structure is designed now. All payment columns on bookings and profiles are nullable until Phase 3 when live integration begins.'),
+      ...spacer(1),
+      h3('payments'),
+      twoColTable([
+        ['id', 'uuid PK'],
+        ['booking_id', 'uuid FK → bookings(id)'],
+        ['amount', 'numeric NOT NULL'],
+        ['currency', 'text DEFAULT KES'],
+        ['method', 'text — mpesa · mock'],
+        ['status', 'text — initiated · pending · completed · failed · reversed'],
+        ['mpesa_checkout_request_id', 'text'],
+        ['mpesa_merchant_request_id', 'text'],
+        ['mpesa_receipt_number', 'text'],
+        ['initiated_at', 'timestamptz'],
+        ['completed_at', 'timestamptz'],
+        ['failed_reason', 'text'],
+      ], 2400, 6960),
+      ...spacer(1),
+      h3('escrow_ledger'),
+      twoColTable([
+        ['id', 'uuid PK'],
+        ['payment_id', 'uuid FK → payments(id)'],
+        ['driver_id', 'uuid FK → profiles(id)'],
+        ['amount', 'numeric NOT NULL'],
+        ['status', 'text — held · released · refunded · disputed'],
+        ['held_at', 'timestamptz'],
+        ['release_due_at', 'timestamptz — trip completion + dispute window'],
+        ['released_at', 'timestamptz'],
+        ['released_by', 'uuid — admin ID (Phase 4) or system (Phase 5)'],
+      ], 2400, 6960),
+      ...spacer(1),
+      h3('payouts · refunds · disputes'),
+      body('These three tables follow the same pattern: they reference a payment and/or booking, carry a status state machine, and record who initiated the action and when. Full schema is defined in Phase 2 implementation. The key states are: payouts (queued → processing → sent → failed), refunds (pending → processing → sent → failed), disputes (open → under_review → resolved_passenger | resolved_driver | resolved_refund).'),
+      pageBreak(),
+
+      // ── 5. DUAL ONBOARDING ──────────────────────────────────────────────────
+      h1('5. Dual Onboarding Strategy'),
+      body('The most important product design decision in PamojaRide is that passengers and drivers have completely different onboarding experiences. These two flows optimise for opposite goals and must never be conflated.'),
+      ...spacer(1),
+      h2('5.1 Passenger Onboarding — Speed and Conversion'),
+      body('Passengers are acquired on the supply side of a marketplace. Every additional step in signup reduces conversion. The goal is: create an account, book a trip — in under 60 seconds.'),
+      ...spacer(1),
+      callout('Passenger requirements — the complete list', [
+        '1. Full name',
+        '2. Phone number + OTP verification (6-digit code, 5-minute expiry)',
+        '3. Password (or Google OAuth — no password needed)',
+        'That is everything. No ID. No selfie. No vehicle docs. No admin approval. No waiting.',
+      ], C.tealXLight, C.teal, C.tealDark),
+      ...spacer(1),
+      body('Signup methods available at launch: phone number + OTP, email + password. Google OAuth added immediately after. Social login (Facebook, Apple) in a future phase. All methods land the user in the same dashboard with identical permissions.'),
+      body('Lightweight protection runs invisibly: OTP rate limiting (max 3 codes per phone per hour), duplicate phone detection with E.164 normalisation, suspicious activity monitoring via the flagged_for_review column, and IP-based rate limiting on the Edge Function layer.'),
+      body('Optional future verification: passengers can earn a "Verified Passenger" badge by submitting an ID — but this is never required. It is a trust signal they can choose to display, not a gate.'),
+      ...spacer(1),
+      h2('5.2 Driver Onboarding — Trust and Verification'),
+      body('Drivers handle real passengers physically and receive real payouts. A fraudulent driver is a safety risk, a reputational risk, and a financial risk. Every driver must be verified before they can post a single trip.'),
+      body('The driver signup is a four-step progressive flow. The account is created after Step 1 with verification_status = pending_verification. The driver can log in but sees only a "Complete your verification" screen. Full access is granted only after admin approval.'),
+      ...spacer(1),
+      headerTable(
+        ['Step', 'What the driver provides', 'Status after'],
+        [
+          ['Step 1 — Credentials', 'Name, phone, email, OTP verification, password', 'pending_verification — account exists, no features'],
+          ['Step 2 — Identity', 'National ID number, ID front photo, selfie holding ID', 'Still pending'],
+          ['Step 3 — Driving credentials', 'Driver licence number, licence class, expiry date, licence photos, emergency contact', 'Still pending'],
+          ['Step 4 — Vehicle', 'Make, model, year, colour, plate, logbook photo, 3 vehicle photos, PSV (optional)', 'under_review — admin notified'],
+        ],
+        [1400, 4760, 3200]
+      ),
+      ...spacer(1),
+      h2('5.3 Driver Account States'),
+      body('Driver accounts move through six possible states. The verification_status column on profiles controls which features are accessible.'),
+      ...spacer(1),
+      headerTable(
+        ['State', 'Meaning', 'Can post trips?', 'Can receive payment?'],
+        [
+          ['pending_verification', 'KYC docs not yet submitted', 'No', 'No'],
+          ['under_review', 'Admin reviewing submitted documents', 'No', 'No'],
+          ['verified', 'Approved — trust limits apply', 'Yes (limited)', 'Phase 3+'],
+          ['rejected', 'Documents rejected — can resubmit (max 3 attempts)', 'No', 'No'],
+          ['suspended', 'Temporary — admin can lift', 'No', 'Frozen'],
+          ['banned', 'Permanent — no appeal', 'No', 'Frozen'],
+        ],
+        [2200, 3160, 2000, 2000]
+      ),
+      ...spacer(1),
+      h2('5.4 Trust-Based Limits — the Graduation System'),
+      body('A freshly verified driver starts with trust_level = 1 and strict limits. As they build a track record — completed trips, positive ratings, zero disputes — the system automatically upgrades their trust level and unlocks more capacity.'),
+      ...spacer(1),
+      headerTable(
+        ['Level', 'Trips completed', 'Min rating', 'Max seats', 'Max active trips', 'Payout delay'],
+        [
+          ['1 — New', '0–4', 'n/a', '2', '1', '48 hours'],
+          ['2 — Building', '5–14', '≥ 4.0', '4', '2', '24 hours'],
+          ['3 — Established', '15–29', '≥ 4.2', '6', '3', '12 hours'],
+          ['4 — Trusted', '30–59', '≥ 4.5', 'Full car', '5', '6 hours'],
+          ['5 — Elite', '60+', '≥ 4.7 + PSV', 'Full car', 'Unlimited', 'Instant'],
+        ],
+        [1200, 1800, 1400, 1400, 1960, 1600]
+      ),
+      body('Trust level upgrades are automatic: the recalculate_driver_trust() Postgres function runs after every trip completion. Trust downgrades also happen automatically — a dispute resolved against the driver drops trust by one level immediately.'),
+      pageBreak(),
+
+      // ── 6. KEY SYSTEM FLOWS ──────────────────────────────────────────────────
+      h1('6. Key System Flows'),
+      h2('6.1 Seat Booking — Race Condition Prevention'),
+      body('The most technically critical flow in the entire system is seat booking. Without proper locking, two passengers booking the last seat simultaneously can both succeed, creating an overbooked trip. PamojaRide solves this with a Postgres RPC function that uses row-level locking:'),
+      ...spacer(1),
+      callout('book_seats() RPC — how it works', [
+        '1. SELECT … FOR UPDATE locks the trip row exclusively',
+        '2. Checks seats_available >= requested seats (fails with exception if not)',
+        '3. UPDATE trips SET seats_available = seats_available - seats',
+        '4. INSERT INTO bookings … RETURNING id',
+        '5. All four steps run in one atomic transaction — no partial states possible',
+        'Rule: seats_available is NEVER updated from client code. Only this RPC.',
+      ], C.amberLight, C.amber, '92400E'),
+      ...spacer(1),
+      h2('6.2 Trip Lifecycle — Postgres Trigger Notifications'),
+      body('Notifications to passengers are created server-side by Postgres triggers, never client-side. This means notifications fire even if the driver\'s app crashes immediately after the status change — the database transaction that updates the trip status also creates the notification rows atomically.'),
+      ...spacer(1),
+      numbered('Driver presses "Start Trip" → trips.status updated to ongoing'),
+      numbered('Postgres trigger on_trip_status_change fires'),
+      numbered('Trigger inserts notification rows for every confirmed passenger on this trip'),
+      numbered('Supabase Realtime broadcasts INSERT events to all subscribed clients'),
+      numbered('Passenger apps receive the WebSocket event and update their UI instantly'),
+      numbered('Same flow repeats when driver marks trip completed'),
+      ...spacer(1),
+      h2('6.3 Real-Time Notifications'),
+      body('Both drivers and passengers subscribe to the notifications table via Supabase Realtime channels scoped to their user_id. The channel subscription is established on login and torn down on logout. The notification bell badge increments on every INSERT event. Clicking a notification marks it read via an UPDATE and the badge decrements.'),
+      body('The NotificationBell component fetches the last 10 notifications on mount and subscribes to new inserts. On mobile, a push notification (via a future Expo or Firebase integration) supplements the in-app badge.'),
+      ...spacer(1),
+      h2('6.4 Admin Review Flow'),
+      body('When a driver submits KYC documents, a notification is created for all admin-role users. The admin opens the review queue (/admin/drivers/review), sorted FIFO by submission date. Each application shows all submitted documents via 1-hour signed URLs from the private storage bucket.'),
+      body('The admin checklist must be fully completed before the Approve button activates: ID readable, face matches selfie, licence valid and not expired, vehicle matches logbook, plate clearly visible in photo. Every approval and rejection writes to audit_logs and creates a notification for the driver.'),
+      pageBreak(),
+
+      // ── 7. FRAUD PREVENTION ─────────────────────────────────────────────────
+      h1('7. Fraud Prevention Architecture'),
+      body('Fraud prevention is not a single feature — it is a set of overlapping systems that each independently reduce risk. The goal is defence in depth: each layer catches different fraud patterns, and an attacker would need to defeat all layers simultaneously.'),
+      ...spacer(1),
+      h2('7.1 Identity Layer'),
+      bullet('National ID + selfie verification — admin visually confirms the person matches the document. Smile Identity API can automate this at scale (Phase 3+).', 0),
+      bullet('Phone number binding — Kenyan phone numbers are SIM-registered under a real name (mandatory by CA Kenya). One verified phone = one account.', 0),
+      bullet('Vehicle logbook verification — plate number is cross-referenced against the submitted logbook photo. If the vehicle changes, re-verification is required.', 0),
+      bullet('Three-rejection ban — after three KYC rejections, the account is permanently banned and the phone number is blacklisted.', 0),
+      ...spacer(1),
+      h2('7.2 Operational Layer'),
+      bullet('Trust-based seat limits — new drivers can carry at most 2 passengers per trip. Even a successful fraudulent trip causes minimal financial damage before the account is flagged.', 0),
+      bullet('Posting bond (Phase 4) — drivers put up a small bond (KES 200–500) when creating a trip, refunded on completion. Fraudulent drivers who ghost before departure lose the bond.', 0),
+      bullet('Trip reporting — passengers can flag a trip or driver. Two or more reports on the same trip auto-suspend it pending review.', 0),
+      bullet('Progressive trust — drivers cannot jump from 0 to 60 trips overnight. The trust graduation system means a new account has limited blast radius even if it is fraudulent.', 0),
+      ...spacer(1),
+      h2('7.3 Payment Layer (Phase 3+)'),
+      bullet('Escrow model — passenger money never goes directly to the driver. It holds in the platform Paybill and is released only after trip completion and the dispute window.', 0),
+      bullet('Idempotency keys — every M-Pesa STK Push request carries a unique idempotency key. Duplicate callbacks from Safaricom are detected and ignored.', 0),
+      bullet('Callback URL secret — the Daraja callback URL includes a 32-character random token. Anyone who discovers the Edge Function URL cannot fake a successful payment.', 0),
+      bullet('Manual payout review (Phase 4) — every payout requires admin approval before B2C is triggered. This gives the team time to learn fraud patterns before automating.', 0),
+      ...spacer(1),
+      h2('7.4 Fraud Signals to Monitor'),
+      body('These patterns in your audit logs indicate potential fraud and should trigger manual review:'),
+      ...spacer(1),
+      headerTable(
+        ['Signal', 'What it indicates', 'Response'],
+        [
+          ['Account created < 24 hrs ago + high-value trip posted', 'Fake account testing system', 'Auto-flag for review'],
+          ['Same IP address registering multiple drivers', 'Account farm', 'Suspend all, investigate'],
+          ['Driver marking trip complete without moving (Phase 5)', 'Payment fraud via fake completion', 'GPS validation required'],
+          ['Multiple passengers reporting same driver', 'Pattern of bad behaviour', 'Immediate suspension pending review'],
+          ['Booking cancelled within minutes of payment', 'Testing for refund exploit', 'Flag payment, manual review'],
+          ['High trip price on a new driver account', 'Setting up for ghost trip', 'Require additional verification'],
+        ],
+        [2600, 3160, 3600]
+      ),
+      pageBreak(),
+
+      // ── 8. FIVE-PHASE BUILD ROADMAP ──────────────────────────────────────────
+      h1('8. Five-Phase Build Roadmap'),
+      body('The platform is built in five phases. Each phase has a clear entry gate (what must be proven before starting) and exit gate (what must be proven before advancing). No phase is skipped. Real money is not touched until Phase 4.'),
+      ...spacer(1),
+
+      h2('Phase 1 — Core Platform (Months 1–3)'),
+      callout('Goal: A fully working transport marketplace with zero real money moving.', [
+        'Every system must be production-grade before payments are introduced.',
+        'Mock payment states (unpaid, pending_mock, paid_mock) simulate the full booking flow.',
+        'Exit gate: all 20 systems listed below stable and tested with real users.',
+      ], C.tealXLight, C.teal, C.tealDark),
+      ...spacer(1),
+      body('The 20 systems to build, in dependency order:'),
+      ...spacer(1),
+      numbered('Authentication system — Supabase Auth, OTP via Africa\'s Talking, Google OAuth'),
+      numbered('Profiles table + handle_new_user trigger'),
+      numbered('Route templates table + pg_cron daily job'),
+      numbered('Trip creation — form, validation, insert'),
+      numbered('Trip search — filters, joins, result cards'),
+      numbered('book_seats() RPC — atomic seat reservation'),
+      numbered('Booking system — create, status, cancellation'),
+      numbered('Mock payment flow — paid_mock state, no real money'),
+      numbered('Trip lifecycle management — active → ongoing → completed'),
+      numbered('Postgres triggers — notifications on trip status change'),
+      numbered('Notification system — table, Realtime subscription, bell component'),
+      numbered('Driver dashboard — stats, upcoming trips, quick actions'),
+      numbered('Passenger dashboard — stats, recent bookings, upcoming trip card'),
+      numbered('Admin dashboard — user management, trip oversight'),
+      numbered('Driver KYC submission — multi-step form, private Storage upload'),
+      numbered('Admin review queue — document viewer, approve/reject workflow'),
+      numbered('Driver account state machine — all 6 states and transitions'),
+      numbered('Trust level system — recalculate_driver_trust() function'),
+      numbered('Reporting system — flag trips, flag drivers, auto-suspend'),
+      numbered('Audit logging — every state change written to audit_logs'),
+      ...spacer(1),
+
+      h2('Phase 2 — Payment Architecture (Month 4)'),
+      callout('Goal: Design the full payment data model. No live transactions yet.', [
+        'Create: payments · payouts · refunds · escrow_ledger · disputes tables',
+        'Define all state machines and CHECK constraints',
+        'Add payment_status column to bookings',
+        'Exit gate: schema reviewed and state machines validated with simulated data',
+      ], C.bgAlt, C.border, C.gray),
+      ...spacer(1),
+
+      h2('Phase 3 — Daraja Sandbox Testing (Month 5)'),
+      callout('Goal: Connect Safaricom sandbox. Test numbers only. No real money.', [
+        'Build mpesa-stk-push Edge Function — initiates payment, writes payments row',
+        'Build mpesa-callback Edge Function — webhook receiver with signature validation',
+        'Test STK Push → PIN entry → callback → booking confirmed full flow',
+        'Test timeout handling, failed payments, duplicate callbacks',
+        'Test B2C payout flow for refunds',
+        'Exit gate: all sandbox flows pass with zero data integrity errors across 100+ test transactions',
+      ], C.amberLight, C.amber, '92400E'),
+      ...spacer(1),
+
+      h2('Phase 4 — Semi-Manual Escrow MVP (Months 6–9)'),
+      callout('Goal: Real money collected. Admin manually approves every payout.', [
+        'Flow: Passenger pays → money enters platform Paybill → escrow held → admin reviews → admin triggers B2C payout → driver receives M-Pesa',
+        'Build admin payout queue — trip summary, payment receipts, one-click payout with confirmation',
+        'Build manual refund workflow — admin triggers B2C reversal to passenger',
+        'Learn fraud patterns from real operations',
+        'Exit gate: 3+ months live, dispute rate < 2%, zero payout errors, zero refund failures',
+      ], C.dangerLight, C.danger, '991B1B'),
+      ...spacer(1),
+
+      h2('Phase 5 — Full Escrow Automation (Month 10+)'),
+      callout('Goal: Automate everything proven safe in Phase 4.', [
+        'Automatic payout release — Edge Function triggered by trips.status → completed, waits 24-hour dispute window, then releases escrow and queues B2C',
+        'Automatic refund on driver cancellation — trigger fires immediately',
+        'GPS completion validation — trip auto-completes when driver is within 500m of destination for 5+ minutes',
+        'Fraud scoring — trust score modifiers based on account age, completion rate, dispute rate, ID-to-M-Pesa name match',
+        'AI fraud detection — anomaly detection on trip patterns and payment flows',
+        'Payout scheduling — batched B2C for operational efficiency',
+      ], C.greenLight, C.green, '166534'),
+      pageBreak(),
+
+      // ── 9. KEY TECHNICAL DECISIONS ───────────────────────────────────────────
+      h1('9. Key Technical Decisions'),
+      ...spacer(1),
+      h2('9.1 Why No Backend Server'),
+      body('PamojaRide has no Express, Fastify, or Django backend. All server-side logic runs in Supabase Edge Functions (Deno) or Postgres functions. This decision has major implications:'),
+      bullet('Zero server management — no VMs, no Kubernetes, no uptime monitoring for application servers. Supabase handles all infrastructure.', 0),
+      bullet('Horizontal scaling is automatic — Edge Functions scale to zero and back up with no configuration.', 0),
+      bullet('The only external API calls (Daraja, Smile Identity, Africa\'s Talking) happen inside Edge Functions where secrets are safely stored. They never happen from client code.', 0),
+      bullet('The trade-off: complex server-side workflows (payout batching, fraud scoring) require more sophisticated Postgres function design. Worth it for the simplicity gained.', 0),
+      ...spacer(1),
+      h2('9.2 Why Supabase Over Firebase'),
+      bullet('PostgreSQL enables row-level security policies that are impossible in Firestore without duplicating data across collections.', 0),
+      bullet('Postgres functions (RPCs) allow atomic multi-table operations like book_seats() — Firebase has no equivalent without cloud functions.', 0),
+      bullet('The existing team has SQL knowledge. NoSQL document modeling for a relational domain (trips, bookings, payments) adds complexity.', 0),
+      bullet('Supabase Storage with signed URLs is the correct solution for private KYC documents.', 0),
+      ...spacer(1),
+      h2('9.3 Why Plain CSS Over Tailwind'),
+      body('Tailwind is excellent but adds build-time dependency and bundle overhead. For a project with a defined brand system (the CSS token file is already complete), plain CSS with custom properties produces a cleaner separation of concerns and smaller bundles. The design tokens (--primary, --accent, --radius, etc.) provide the same systematic consistency that Tailwind utility classes provide, without the toolchain complexity.'),
+      ...spacer(1),
+      h2('9.4 Date and Time Handling'),
+      body('All datetimes are stored as UTC timestamptz in PostgreSQL. All display is converted to Africa/Nairobi timezone (EAT, UTC+3) in the frontend. This is a non-negotiable rule enforced in every component:'),
+      callout('Date formatting rule — applies everywhere', [
+        'new Intl.DateTimeFormat("en-KE", { timeZone: "Africa/Nairobi", dateStyle: "medium", timeStyle: "short" }).format(date)',
+        'Currency: toLocaleString("en-KE") → produces "KES 1,200"',
+        'Never use toLocaleDateString() without explicit timeZone — produces wrong time for EAT users browsing from non-EAT timezone',
+      ], C.bgAlt, C.border, C.gray),
+      ...spacer(1),
+      h2('9.5 Phone Number Normalisation'),
+      body('All Kenyan phone numbers are normalised to E.164 format (+254XXXXXXXXX) on both write and read. The normalisation function handles: 07XXXXXXXX → +25407XXXXXXXX, 254XXXXXXXXX → +254XXXXXXXXX, +254XXXXXXXXX → unchanged. This prevents duplicate accounts from 0712345678 vs +254712345678 and ensures M-Pesa STK Push works correctly (Daraja requires E.164 format).'),
+      pageBreak(),
+
+      // ── 10. FILE STRUCTURE ───────────────────────────────────────────────────
+      h1('10. File Structure'),
+      body('The codebase is organised by role and feature, not by technical layer. Driver and passenger code are completely separated into /pages/driver and /pages/passenger. Shared components live in /components/shared.'),
+      ...spacer(1),
+      twoColTable([
+        ['src/lib/supabase.js', 'Supabase client initialisation — single instance used everywhere'],
+        ['src/context/AuthContext.jsx', 'Auth state: signUp, signIn, signOut, updateProfile, profile fetch'],
+        ['src/styles/global.css', 'Complete design token system + base component styles'],
+        ['src/App.jsx', 'All routes with ProtectedRoute and PublicRoute components'],
+        ['src/pages/Landing.jsx', 'Public landing page — hero, how it works, CTA'],
+        ['src/pages/auth/', 'PassengerLogin, PassengerRegister, DriverLogin, DriverRegister'],
+        ['src/pages/passenger/', 'Dashboard, SearchTrips, MyBookings, Profile'],
+        ['src/pages/driver/', 'Dashboard, CreateTrip, ManageTrips, Bookings, Profile'],
+        ['src/pages/admin/', 'Dashboard, DriverReview, TripOversight, UserManagement'],
+        ['src/components/shared/', 'Sidebar, Navbar, NotificationBell, TripCard, BookingCard'],
+        ['src/components/passenger/', 'TripSearchForm, BookingModal, RatingModal'],
+        ['src/components/driver/', 'TripForm, PassengerList, EarningsBreakdown'],
+        ['src/components/admin/', 'KYCReviewer, PayoutQueue, DisputeManager'],
+        ['supabase/functions/', 'mpesa-stk-push, mpesa-callback, send-otp, recalculate-trust'],
+        ['supabase/migrations/', 'All SQL schema files in order — never modify applied migrations'],
+      ], 2800, 6560),
+      pageBreak(),
+
+      // ── 11. API & RPC REFERENCE ──────────────────────────────────────────────
+      h1('11. Postgres Functions & RPC Reference'),
+      ...spacer(1),
+      headerTable(
+        ['Function', 'Purpose', 'Called from'],
+        [
+          ['book_seats(trip_id, passenger_id, seats, amount)', 'Atomic seat reservation with row locking', 'Client via Supabase RPC'],
+          ['handle_new_user()', 'Trigger: create profiles row on auth.users INSERT', 'Postgres trigger on signup'],
+          ['on_trip_status_change()', 'Trigger: create notifications on trip status UPDATE', 'Postgres trigger on trips table'],
+          ['recalculate_driver_trust(driver_id)', 'Recompute trust level after trip completion', 'Edge Function or trigger'],
+          ['create_trips_from_templates()', 'pg_cron: insert upcoming trips from active templates', 'pg_cron daily at midnight EAT'],
+          ['normalise_phone(phone_text)', 'Convert any phone format to E.164', 'Called before any phone write'],
+        ],
+        [3200, 3560, 2600]
+      ),
+      ...spacer(1),
+
+      h1('12. Edge Function Reference'),
+      ...spacer(1),
+      headerTable(
+        ['Function', 'Trigger', 'What it does'],
+        [
+          ['mpesa-stk-push', 'POST from client (Phase 3+)', 'Gets Daraja OAuth token, sends STK Push, writes payments row with status=pending'],
+          ['mpesa-callback', 'POST from Safaricom webhook', 'Validates callback, updates payment+booking status, creates notification'],
+          ['send-otp', 'POST from client on signup/login', 'Sends 6-digit OTP via Africa\'s Talking SMS, writes to otp_verifications table'],
+          ['verify-otp', 'POST from client on OTP entry', 'Checks code, expiry, attempts counter, marks phone_verified=true'],
+          ['recalculate-trust', 'DB webhook on trips UPDATE', 'Calls recalculate_driver_trust(), notifies driver of level change'],
+          ['kyc-webhook', 'POST from Smile Identity (Phase 3+)', 'Updates kyc_documents with verification result, notifies admin'],
+        ],
+        [2200, 2600, 4560]
+      ),
+      pageBreak(),
+
+      // ── 13. DESIGN SYSTEM ────────────────────────────────────────────────────
+      h1('13. Brand & Design System'),
+      h2('13.1 Colour Palette'),
+      ...spacer(1),
+      headerTable(
+        ['Token', 'Hex', 'Usage'],
+        [
+          ['--primary', '#0E7490', 'Primary buttons, sidebar active state, links, brand'],
+          ['--primary-dark', '#155E75', 'Button hover states, headings on light backgrounds'],
+          ['--primary-light', '#CFFAFE', 'Active nav item backgrounds, info badges'],
+          ['--accent', '#F97316', 'Prices, CTA buttons on dark backgrounds, "Ride" in logo'],
+          ['--green', '#16A34A', 'Success states, confirmed bookings, active trips'],
+          ['--danger', '#EF4444', 'Errors, cancel buttons, suspended/banned state badges'],
+          ['--warning', '#F59E0B', 'Star ratings, pending states, caution messages'],
+          ['--text', '#0F172A', 'Body copy, headings'],
+          ['--text-muted', '#64748B', 'Subtext, labels, placeholders'],
+          ['--bg-alt', '#F8FAFC', 'Page background, sidebar background'],
+          ['--border', '#E2E8F0', 'Card borders, dividers, input borders'],
+        ],
+        [2000, 1600, 5760]
+      ),
+      ...spacer(1),
+      h2('13.2 Typography'),
+      twoColTable([
+        ['Display / headings', 'Syne 700–800 — logo, page titles, stat numbers'],
+        ['Body / UI', 'Plus Jakarta Sans 400–700 — all body text, labels, buttons'],
+        ['Forbidden fonts', 'Never Arial, Inter, Roboto, or system-ui in production UI'],
+        ['Focus ring', 'box-shadow: 0 0 0 3px rgba(14,116,144,0.15) on all focused inputs'],
+        ['Input style', '1px solid var(--border-strong), teal focus ring, 10px 14px padding'],
+      ], 2400, 6960),
+      ...spacer(1),
+      h2('13.3 Component Rules'),
+      bullet('All buttons have hover (background darkens) + active (transform: translateY(-1px)) states', 0),
+      bullet('Cards use 1px solid var(--border), border-radius: var(--radius), box-shadow: var(--shadow-sm)', 0),
+      bullet('Every list or data view must have an empty state with icon, heading, and helpful message', 0),
+      bullet('Every async operation shows a loading spinner — no silent loading states', 0),
+      bullet('Error messages are always user-friendly — never raw Supabase error strings', 0),
+      bullet('All currency displayed as KES X,XXX — always via toLocaleString("en-KE")', 0),
+      bullet('All dates displayed in EAT (Africa/Nairobi timezone) via Intl.DateTimeFormat', 0),
+      pageBreak(),
+
+      // ── 14. REGULATORY ───────────────────────────────────────────────────────
+      h1('14. Regulatory & Compliance Considerations'),
+      body('Kenya has a clear regulatory environment for transport and financial platforms. These are the key obligations to address before Phase 4 (real money).'),
+      ...spacer(1),
+      headerTable(
+        ['Area', 'Requirement', 'Action required'],
+        [
+          ['Data Protection', 'Kenya Data Protection Act 2019 — personal data must be stored securely, users can request deletion', 'Privacy policy, data deletion endpoint, DPA registration'],
+          ['Payment aggregation', 'Central Bank of Kenya regulations on payment services — routing through M-Pesa Paybill may require registration', 'Legal advice before Phase 4 launch'],
+          ['PSV licensing', 'Drivers carrying passengers for hire legally require a PSV badge in Kenya', 'Require PSV for high-trust levels; legal advice on enforcement'],
+          ['VAT', '16% VAT applies to digital services in Kenya', 'Register for VAT before Phase 4; include in pricing model'],
+          ['Consumer protection', 'Competition Authority of Kenya — fair pricing, no misleading listings', 'Clear cancellation policy, transparent pricing'],
+          ['Insurance', 'Passengers may not be covered by standard vehicle insurance during a PamojaRide trip', 'Investigate group travel insurance product for Phase 4'],
+        ],
+        [1800, 3960, 3600]
+      ),
+      pageBreak(),
+
+      // ── 15. SCALABILITY ──────────────────────────────────────────────────────
+      h1('15. Scalability & Performance'),
+      h2('15.1 Database Indexes'),
+      body('These indexes are required before the platform goes live. Without them, search queries and dashboard queries will become slow as trip volume grows.'),
+      ...spacer(1),
+      bullet('CREATE INDEX idx_trips_status ON trips(status) — filters active trips in search', 0),
+      bullet('CREATE INDEX idx_trips_departure ON trips(departure_datetime) — date-range queries', 0),
+      bullet('CREATE INDEX idx_trips_route ON trips(start_location, end_location) — route search', 0),
+      bullet('CREATE INDEX idx_bookings_passenger ON bookings(passenger_id) — my bookings page', 0),
+      bullet('CREATE INDEX idx_bookings_trip ON bookings(trip_id) — driver bookings page', 0),
+      bullet('CREATE INDEX idx_notifications_user ON notifications(user_id, read, created_at DESC)', 0),
+      bullet('CREATE INDEX idx_ratings_driver ON ratings(driver_id) — average rating queries', 0),
+      bullet('CREATE INDEX idx_audit_logs_entity ON audit_logs(entity_type, entity_id)', 0),
+      ...spacer(1),
+      h2('15.2 Supabase Realtime Scaling'),
+      body('Supabase Realtime uses WebSocket connections. Each connected user holds one connection. At 10,000 concurrent users, this is manageable on Supabase Pro. At 100,000+, consider moving to a dedicated Realtime server or using server-sent events for one-directional notification streams.'),
+      body('The notification subscription is scoped to the user\'s ID, not a broadcast channel, so message volume scales linearly with active notifications, not with total connected users.'),
+      ...spacer(1),
+      h2('15.3 Offline Resilience'),
+      body('Kenya\'s mobile network quality varies significantly outside Nairobi. The app must handle intermittent connectivity gracefully:'),
+      bullet('All forms cache input locally (localStorage) and restore on reconnect', 0),
+      bullet('Booking confirmation is shown only after the server response — never optimistically', 0),
+      bullet('Trip search results are cached for 60 seconds — a reload during poor connectivity shows the last good result', 0),
+      bullet('The Supabase JS client automatically reconnects WebSocket channels after connection drops', 0),
+      pageBreak(),
+
+      // ── 16. TESTING STRATEGY ─────────────────────────────────────────────────
+      h1('16. Testing Strategy'),
+      ...spacer(1),
+      headerTable(
+        ['Test type', 'What is tested', 'Tool'],
+        [
+          ['Unit — Postgres functions', 'book_seats() race conditions, recalculate_driver_trust() thresholds, normalise_phone() edge cases', 'pgTAP or Jest with Supabase local'],
+          ['Integration — Auth flows', 'Signup → OTP → login → profile fetch for both roles', 'Playwright or Cypress'],
+          ['Integration — Booking flow', 'Search → book → payment mock → confirmed status → notifications fired', 'Playwright'],
+          ['Integration — Driver lifecycle', 'KYC submit → admin approve → trip post → start → complete → trust recalculate', 'Playwright'],
+          ['Load — Concurrent bookings', 'Simulate 50 passengers booking the last seat simultaneously — zero double-bookings', 'k6 or Artillery'],
+          ['Security — RLS policies', 'Passenger cannot read another passenger\'s bookings; driver cannot read another driver\'s trips', 'Supabase local + Jest'],
+          ['Manual — Admin review', 'KYC document viewer, approve/reject flow, audit log entries', 'Manual QA checklist'],
+        ],
+        [2200, 4360, 2800]
+      ),
+      pageBreak(),
+
+      // ── 17. IMMEDIATE NEXT STEPS ─────────────────────────────────────────────
+      h1('17. Immediate Build Order — Phase 1'),
+      body('This is the exact sequence to follow for Phase 1. Each item must be complete and tested before moving to the next.'),
+      ...spacer(1),
+      callout('Critical rule', [
+        'Do not start item N+1 until item N is complete and working.',
+        'Do not add payment logic until all 20 Phase 1 items are done.',
+        'Do not skip the admin dashboard — it is required to operate the platform.',
+      ], C.dangerLight, C.danger, '991B1B'),
+      ...spacer(1),
+      numbered('Run the complete database schema SQL in Supabase SQL editor'),
+      numbered('Enable RLS and apply all policies'),
+      numbered('Add all Phase 1 columns to profiles (verification_status, trust_level, etc.)'),
+      numbered('Create the route_templates table'),
+      numbered('Install pg_cron and write the daily template job'),
+      numbered('Build src/lib/supabase.js and src/context/AuthContext.jsx'),
+      numbered('Build PassengerRegister and PassengerLogin pages'),
+      numbered('Build DriverRegister (4-step form with Storage upload)'),
+      numbered('Build DriverLogin and the pending verification screen'),
+      numbered('Build App.jsx routing with ProtectedRoute and role enforcement'),
+      numbered('Build shared Sidebar and Navbar components'),
+      numbered('Build NotificationBell with Realtime subscription'),
+      numbered('Build passenger Dashboard page'),
+      numbered('Build driver Dashboard page'),
+      numbered('Build TripSearchForm and SearchTrips page'),
+      numbered('Build BookingModal with mock payment flow'),
+      numbered('Build MyBookings page with tabs and rating modal'),
+      numbered('Build CreateTrip and ManageTrips for driver'),
+      numbered('Build driver Bookings (passenger list per trip)'),
+      numbered('Build admin dashboard: driver review queue + KYC document viewer'),
+      numbered('Write recalculate_driver_trust() Postgres function'),
+      numbered('Write on_trip_status_change() Postgres trigger'),
+      numbered('End-to-end test: signup → KYC → admin approve → post trip → book → start → complete → rate'),
+      numbered('Load test: concurrent bookings on a trip with 1 seat remaining'),
+      ...spacer(1),
+      divider(),
+      ...spacer(1),
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 120, after: 40 },
+        children: [new TextRun({ text: 'PamojaRide', font: 'Arial', size: 28, bold: true, color: C.teal })]
+      }),
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 0, after: 20 },
+        children: [new TextRun({ text: 'Build with confidence. Move with purpose. Deliver with trust.', font: 'Arial', size: 22, color: C.muted, italics: true })]
+      }),
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 0, after: 0 },
+        children: [new TextRun({ text: 'Internal Technical Document — v1.0 — Phase 1 Build', font: 'Arial', size: 18, color: C.muted })]
+      }),
+    ]
+  }]
+});
+
+Packer.toBuffer(doc).then(buffer => {
+  fs.writeFileSync('/mnt/user-data/outputs/PamojaRide_Architecture_v1.docx', buffer);
+  console.log('Done');
+}).catch(e => { console.error(e); process.exit(1); });
