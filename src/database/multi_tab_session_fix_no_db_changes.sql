@@ -1,0 +1,37 @@
+-- ============================================================================
+-- multi_tab_session_fix_no_db_changes.sql
+--
+-- Task: Fix multi-tab login/session redirect loop.
+--
+-- NO DATABASE CHANGES WERE REQUIRED FOR THIS FIX.
+--
+-- Root cause investigation showed the infinite reload/redirect loop was a
+-- pure frontend (React / React Router) bug:
+--
+--   1. src/App.jsx's <PublicRoute> auto-redirected the "/" landing page to
+--      a dashboard the instant ANY of the three portal-scoped Supabase
+--      sessions (driver/passenger/admin) existed in this browser's
+--      localStorage -- even in a brand-new tab where the person had not
+--      chosen anything yet.
+--
+--   2. That automatic redirect raced against src/context/AuthContext.jsx's
+--      own async, portal-scoped session bootstrap. `loading` was not set
+--      to `true` synchronously the moment the portal changed, so on the
+--      very next render after the redirect, <ProtectedRoute> briefly read
+--      STALE state left over from the landing page (loading:false,
+--      user:null) and immediately bounced back to "/" -- which re-ran the
+--      same auto-redirect and repeated forever.
+--
+-- Both the active_sessions table, its RLS policies, and the
+-- is_my_session_active() RPC (see session_validation_hardening.sql and
+-- driver_side_final_integration.sql) already implement the correct
+-- "single active session per (account, portal)" behaviour and needed no
+-- changes. The 20-minute idle timeout, Supabase auth as the source of
+-- truth, and all existing route protection were left completely intact.
+--
+-- This file is included only so the project's SQL changelog stays
+-- complete and it is explicit, for the record, that this fix required no
+-- schema, RLS, trigger, or RPC changes whatsoever.
+-- ============================================================================
+
+-- (intentionally empty -- no SQL statements to run)

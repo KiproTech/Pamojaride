@@ -1,7 +1,5 @@
-import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
-import { getSupabaseClient } from './lib/supabaseClients';
 
 // Public
 import Landing from './pages/Landing';
@@ -52,6 +50,8 @@ import AdminReportDetails from './pages/admin/ReportDetails';
 import AdminSupport     from './pages/admin/Support';
 import AdminSupportDetails from './pages/admin/SupportDetails';
 import AdminNotifications from './pages/admin/Notifications';
+import AdminProfile from './pages/admin/Profile';
+import AdminSupportContacts from './pages/admin/SupportContacts';
 import AuditLog         from './pages/admin/AuditLog';
 
 // Account status (suspended / banned / pending driver approval) — scoped
@@ -120,38 +120,24 @@ function ProtectedRoute({ children, role, allowUnverifiedDriver = false }) {
   return children;
 }
 
-// Portal sessions are now isolated (see AuthContext / supabaseClients), so
-// on a portal-specific login page (preferredRole set) `useAuth()` already
+// Portal sessions are isolated (see AuthContext / supabaseClients), so on a
+// portal-specific login page (preferredRole set) `useAuth()` already
 // reflects that exact portal's session and the check below is direct.
 //
-// On the generic landing page ("/"), there is no single portal in scope,
-// so `useAuth()` reports no user even if the person is separately signed
-// in as driver and/or passenger and/or admin elsewhere. We do a light,
-// read-only check of all three portals' stored sessions to decide what to
-// show -- redirecting automatically only when exactly one is signed in,
-// otherwise letting Landing offer explicit "Continue as..." choices.
-function useAnyActiveSessions() {
-  const [sessions, setSessions] = useState(null); // null = still checking
-
-  useEffect(() => {
-    let cancelled = false;
-    Promise.all(
-      ['admin', 'driver', 'passenger'].map(async (p) => {
-        const { data: { session } } = await getSupabaseClient(p).auth.getSession();
-        return [p, !!session];
-      })
-    ).then((pairs) => {
-      if (!cancelled) setSessions(Object.fromEntries(pairs));
-    });
-    return () => { cancelled = true; };
-  }, []);
-
-  return sessions;
-}
-
+// On the generic landing page ("/"), there is deliberately NO cross-portal
+// "is the person signed in somewhere else" check here. Landing always just
+// renders the landing page with its Passenger Login / Driver Login choices,
+// regardless of what's signed in in this browser under a different portal
+// (or even the same portal, in another tab) -- that's the whole point of a
+// landing page, and it also avoids a bug this app used to have: an
+// automatic redirect out of "/" raced against AuthContext's own async,
+// portal-scoped session bootstrap (see the `setLoading(true)` comment in
+// AuthContext.jsx), which could bounce a freshly-opened tab back and forth
+// between "/" and a dashboard forever. If someone wants their existing
+// dashboard, that's one click away on Landing -- it never happens for them
+// automatically.
 function PublicRoute({ children, preferredRole = null }) {
   const { user, loading, isAdmin, isDriver, isPassenger } = useAuth();
-  const anySessions = useAnyActiveSessions();
 
   if (loading) {
     return (
@@ -169,16 +155,6 @@ function PublicRoute({ children, preferredRole = null }) {
     if (preferredRole === 'admin' && isAdmin) return <Navigate to="/admin/dashboard" replace />;
     if (preferredRole === 'driver' && isDriver) return <Navigate to="/driver/dashboard" replace />;
     if (preferredRole === 'passenger' && isPassenger) return <Navigate to="/passenger/dashboard" replace />;
-  }
-
-  if (!preferredRole && anySessions) {
-    const active = Object.entries(anySessions).filter(([, has]) => has).map(([p]) => p);
-    if (active.length === 1) {
-      const dest = active[0] === 'admin' ? '/admin/dashboard' : `/${active[0]}/dashboard`;
-      return <Navigate to={dest} replace />;
-    }
-    // 0 or 2+ active sessions: fall through to Landing, which can offer
-    // "Continue as driver" / "Continue as passenger" / "Admin" links.
   }
 
   return children;
@@ -248,6 +224,8 @@ export default function App() {
       <Route path="/admin/support"        element={<ProtectedRoute role="admin"><AdminSupport /></ProtectedRoute>} />
       <Route path="/admin/support/:requestId" element={<ProtectedRoute role="admin"><AdminSupportDetails /></ProtectedRoute>} />
       <Route path="/admin/notifications"  element={<ProtectedRoute role="admin"><AdminNotifications /></ProtectedRoute>} />
+      <Route path="/admin/profile"        element={<ProtectedRoute role="admin"><AdminProfile /></ProtectedRoute>} />
+      <Route path="/admin/settings/support-contacts" element={<ProtectedRoute role="admin"><AdminSupportContacts /></ProtectedRoute>} />
       <Route path="/admin/audit-log"      element={<ProtectedRoute role="admin"><AuditLog /></ProtectedRoute>} />
 
       {/* Fallback */}

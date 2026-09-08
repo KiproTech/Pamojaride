@@ -81,8 +81,8 @@ export default function PassengerLogin() {
   }
 
   return (
-    <div style={styles.page}>
-      <div style={styles.card}>
+    <div className="auth-split-page" style={styles.page}>
+      <div className="auth-split-card" style={styles.card}>
         <Link to="/" style={styles.logo}>
           <img src="/Vite.svg" alt="logo" style={{ width: 32, height: 32 }} />
           <span style={styles.logoText}>Pamoja<span style={styles.logoAccent}>Ride</span></span>
@@ -122,7 +122,7 @@ export default function PassengerLogin() {
         <p style={styles.footer}><Link to="/driver/login" style={styles.linkMuted}>Sign in as a driver instead</Link></p>
       </div>
 
-      <div style={styles.panel}>
+      <div className="auth-split-panel" style={styles.panel}>
         <div style={styles.panelInner}>
           <div style={styles.panelBadge}>🇰🇪 Trusted across Kenya</div>
           <h2 style={styles.panelHeading}>Your ride,<br />your schedule.</h2>

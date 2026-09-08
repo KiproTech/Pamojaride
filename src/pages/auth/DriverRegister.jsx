@@ -136,8 +136,8 @@ export default function DriverRegister() {
 
   if (done) {
     return (
-      <div style={styles.page}>
-        <div style={styles.card}>
+      <div className="auth-split-page" style={styles.page}>
+        <div className="auth-split-card" style={styles.card}>
           <div style={styles.success}>
             <div style={styles.successIcon}>{needsEmailConfirmation ? '📧' : '🎉'}</div>
             <h1 style={{ ...styles.heading, textAlign: 'center' }}>
@@ -153,7 +153,7 @@ export default function DriverRegister() {
             </Link>
           </div>
         </div>
-        <div style={styles.panel}>
+        <div className="auth-split-panel" style={styles.panel}>
           <div style={styles.panelInner}>
             <div style={styles.glow} />
             <div style={styles.panelBadge}>💰 Earn on every trip</div>
@@ -166,8 +166,8 @@ export default function DriverRegister() {
   }
 
   return (
-    <div style={styles.page}>
-      <div style={styles.card}>
+    <div className="auth-split-page" style={styles.page}>
+      <div className="auth-split-card" style={styles.card}>
         <Link to="/" style={styles.logo}>
           <img src="/Vite.svg" alt="logo" style={{ width: 32, height: 32 }} />
           <span style={styles.logoText}>Pamoja<span style={styles.logoAccent}>Ride</span></span>
@@ -211,7 +211,7 @@ export default function DriverRegister() {
         <p style={styles.footer}><Link to="/passenger/register" style={styles.linkMuted}>Register as a passenger instead</Link></p>
       </div>
 
-      <div style={styles.panel}>
+      <div className="auth-split-panel" style={styles.panel}>
         <div style={styles.panelInner}>
           <div style={styles.glow} />
           <div style={styles.panelBadge}>💰 Earn on every trip</div>

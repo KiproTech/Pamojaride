@@ -1,4 +1,20 @@
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, rgb } from 'pdf-lib';
+import {
+  COLOR_INK,
+  COLOR_MUTED,
+  COLOR_PRIMARY,
+  COLOR_PRIMARY_DARK,
+  COLOR_ACCENT,
+  COLOR_BORDER,
+  COLOR_ROW_ALT,
+  COLOR_WHITE,
+  COLOR_DANGER,
+  COLOR_GREEN,
+  loadReportFonts,
+  formatGeneratedAt,
+  formatPageLabel,
+  drawDocumentFooter,
+} from './documentStyle';
 
 // ============================================================================
 // Driver Booking Report — client-side PDF generation.
@@ -23,18 +39,9 @@ const PAGE_HEIGHT = 841.89;
 const MARGIN = 40;
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
 
-// Brand palette — matches src/styles/global.css (--primary / --accent / --text)
-// so the report reads as the same product, not a generic template.
-const COLOR_INK = rgb(0.06, 0.09, 0.16);        // #0F172A
-const COLOR_MUTED = rgb(0.39, 0.45, 0.55);      // #64748B
-const COLOR_PRIMARY = rgb(0.055, 0.455, 0.565); // #0E7490
-const COLOR_PRIMARY_DARK = rgb(0.084, 0.369, 0.459); // #155E75
-const COLOR_ACCENT = rgb(0.976, 0.451, 0.086);  // #F97316
-const COLOR_BORDER = rgb(0.886, 0.910, 0.941);  // #E2E8F0
-const COLOR_ROW_ALT = rgb(0.973, 0.980, 0.988); // #F8FAFC
-const COLOR_WHITE = rgb(1, 1, 1);
-const COLOR_DANGER = rgb(0.937, 0.267, 0.267);  // #EF4444
-const COLOR_GREEN = rgb(0.086, 0.639, 0.290);   // #16A34A
+// Brand palette shared with receiptPdf.js now lives in ./documentStyle.js
+// (imported above) so the report reads as the same product, not a generic
+// template.
 
 const BOOKING_STATUS_LABEL = {
   pending: 'Pending', confirmed: 'Confirmed', completed: 'Completed',
@@ -52,14 +59,21 @@ function fmtDateTime(value) {
   });
 }
 
-function fmtDate(value) {
-  return new Date(value).toLocaleString('en-KE', {
-    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
-  });
-}
-
 function shortRef(id) {
   return id ? `TRIP-${id.slice(0, 8).toUpperCase()}` : '—';
+}
+
+// route_distance_km can still be null/undefined (older trips, or a distance
+// that couldn't be computed at creation time — see
+// trip_location_route_validation.sql). get_driver_trip_bookings() now
+// selects this column (see database/driver_trip_bookings_route_distance.sql)
+// so it's populated whenever it's available; either way the caller omits
+// the row rather than showing a placeholder.
+function fmtDistanceKm(value) {
+  if (value === null || value === undefined) return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return `${n.toFixed(1)} km`;
 }
 
 // Greedy word-wrap using actual glyph widths for the given font/size.
@@ -104,17 +118,30 @@ function truncateToWidth(text, font, size, maxWidth) {
  *   return type (booking_reference, trip_id, passenger_name, passenger_phone, seats_booked,
  *   status, refund_status, cancellation_reason, cancelled_at, origin,
  *   destination, pickup_point, dropoff_point, departure_time, trip_status).
+ *   An optional `route_distance_km` per row is rendered under Trip
+ *   Information when present and simply omitted when null/undefined —
+ *   get_driver_trip_bookings() selects this column as of
+ *   database/driver_trip_bookings_route_distance.sql (see fmtDistanceKm
+ *   above).
+ * @param {Object} [params.supportContacts] - the row resolved by
+ *   fetchSupportContacts() (src/lib/support/supportContacts.js), i.e. the
+ *   same centrally admin-managed support_email/support_phone/whatsapp_number/
+ *   facebook_url/twitter_url used by SupportContactsCard.jsx. This module
+ *   never fetches it itself (see file header) — the caller (currently
+ *   driver/Bookings.jsx) fetches once and passes the result straight
+ *   through. Safe to omit or pass a fetch failure's fallback value: any
+ *   missing/blank field is simply left out of the footer, and if every
+ *   field is blank the footer falls back to a generic message rather than
+ *   drawing anything broken.
  */
-export async function buildDriverBookingReportPdf({ driverName, driverPhone, filterLabel, bookings }) {
+export async function buildDriverBookingReportPdf({ driverName, driverPhone, filterLabel, bookings, supportContacts }) {
   const pdfDoc = await PDFDocument.create();
   pdfDoc.setTitle('PamojaRide Driver Booking Report');
   pdfDoc.setAuthor('PamojaRide');
   pdfDoc.setSubject(`Driver booking report for ${driverName || 'driver'}`);
   pdfDoc.setProducer('PamojaRide');
 
-  const regular = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-  const italic = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
+  const { regular, bold, italic } = await loadReportFonts(pdfDoc);
 
   const generatedAt = new Date();
   const reportId = `PR-RPT-${generatedAt.getFullYear()}${String(generatedAt.getMonth() + 1).padStart(2, '0')}${String(generatedAt.getDate()).padStart(2, '0')}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
@@ -162,14 +189,14 @@ export async function buildDriverBookingReportPdf({ driverName, driverPhone, fil
   }
 
   function drawFooter() {
-    const footerY = 34;
-    page.drawLine({ start: { x: MARGIN, y: footerY + 16 }, end: { x: PAGE_WIDTH - MARGIN, y: footerY + 16 }, thickness: 0.75, color: COLOR_BORDER });
-    page.drawText('PamojaRide · Need help with a booking? support@pamojaride.co.ke', {
-      x: MARGIN, y: footerY, size: 8.5, font: regular, color: COLOR_MUTED,
+    drawDocumentFooter({
+      page,
+      regularFont: regular,
+      margin: MARGIN,
+      contentWidth: CONTENT_WIDTH,
+      pageLabel: formatPageLabel(pageNum),
+      supportContacts,
     });
-    const pageLabel = `Page ${pageNum}`;
-    const pw = regular.widthOfTextAtSize(pageLabel, 8.5);
-    page.drawText(pageLabel, { x: PAGE_WIDTH - MARGIN - pw, y: footerY, size: 8.5, font: regular, color: COLOR_MUTED });
   }
 
   function newPage() {
@@ -198,7 +225,7 @@ export async function buildDriverBookingReportPdf({ driverName, driverPhone, fil
   const metaLines = [
     [`Driver`, driverName || '—'],
     [`Contact`, driverPhone || '—'],
-    [`Generated`, fmtDate(generatedAt)],
+    [`Generated`, formatGeneratedAt(generatedAt)],
     [`Scope`, filterLabel || 'All bookings'],
   ];
   const metaColWidth = CONTENT_WIDTH / 2;
@@ -223,6 +250,10 @@ export async function buildDriverBookingReportPdf({ driverName, driverPhone, fil
         trip_id: b.trip_id, origin: b.origin, destination: b.destination,
         pickup_point: b.pickup_point, dropoff_point: b.dropoff_point,
         departure_time: b.departure_time, trip_status: b.trip_status,
+        // Optional — present whenever the trip has a computed distance
+        // (see fmtDistanceKm's note above). Same value on every booking
+        // row for the same trip, so the first row seen wins.
+        route_distance_km: b.route_distance_km,
         rows: [],
       });
     }
@@ -253,10 +284,17 @@ export async function buildDriverBookingReportPdf({ driverName, driverPhone, fil
   const RIGHT_COL_WIDTH = CONTENT_WIDTH * 0.4 - 20; // right-aligned text budget
 
   for (const trip of trips) {
-    // ── trip section header (3 rows: route/status, pickup/departure, ref) ──
-    ensureSpace(TRIP_BLOCK_HEIGHT + 18);
-    page.drawRectangle({ x: MARGIN, y: y - TRIP_BLOCK_HEIGHT, width: CONTENT_WIDTH, height: TRIP_BLOCK_HEIGHT, color: rgb(0.941, 0.980, 0.988) });
-    page.drawRectangle({ x: MARGIN, y: y - TRIP_BLOCK_HEIGHT, width: 3, height: TRIP_BLOCK_HEIGHT, color: COLOR_PRIMARY });
+    // ── trip section header (route/status, pickup/departure, [distance], ref) ──
+    // Block height grows by one line only when a distance is available for
+    // this trip — with no distance (the common case today, see the
+    // fmtDistanceKm note above), the block is identical to before.
+    const distanceLabel = fmtDistanceKm(trip.route_distance_km);
+    const hasDistance = Boolean(distanceLabel);
+    const blockHeight = TRIP_BLOCK_HEIGHT + (hasDistance ? 14 : 0);
+
+    ensureSpace(blockHeight + 18);
+    page.drawRectangle({ x: MARGIN, y: y - blockHeight, width: CONTENT_WIDTH, height: blockHeight, color: rgb(0.941, 0.980, 0.988) });
+    page.drawRectangle({ x: MARGIN, y: y - blockHeight, width: 3, height: blockHeight, color: COLOR_PRIMARY });
 
     const routeText = truncateToWidth(`${trip.origin || '—'}  ->  ${trip.destination || '—'}`, bold, 12, LEFT_COL_WIDTH);
     page.drawText(routeText, { x: MARGIN + 12, y: y - 16, size: 12, font: bold, color: COLOR_INK });
@@ -279,9 +317,16 @@ export async function buildDriverBookingReportPdf({ driverName, driverPhone, fil
     const depW = regular.widthOfTextAtSize(departureText, 9);
     page.drawText(departureText, { x: PAGE_WIDTH - MARGIN - 12 - depW, y: y - 31, size: 9, font: regular, color: COLOR_MUTED });
 
-    page.drawText(shortRef(trip.trip_id), { x: MARGIN + 12, y: y - 45, size: 8, font: regular, color: COLOR_MUTED });
+    // Distance line only occupies its own row when present; the ref line
+    // below shifts down 14pt to make room, otherwise it stays exactly
+    // where it was (y - 45).
+    if (hasDistance) {
+      page.drawText(`Distance: ${distanceLabel}`, { x: MARGIN + 12, y: y - 45, size: 9, font: regular, color: COLOR_INK });
+    }
+    const refY = hasDistance ? y - 59 : y - 45;
+    page.drawText(shortRef(trip.trip_id), { x: MARGIN + 12, y: refY, size: 8, font: regular, color: COLOR_MUTED });
 
-    y -= TRIP_BLOCK_HEIGHT + 14;
+    y -= blockHeight + 14;
 
     // ── table header row (also re-drawn via onBreak if the table splits) ──
     function drawColumnHeader() {

@@ -184,6 +184,28 @@ export function AuthProvider({ children }) {
       return;
     }
 
+    // Mark auth state as "initializing" for THIS portal immediately/
+    // synchronously with the portal change, rather than waiting for the
+    // async work below to get around to it.
+    //
+    // Why this matters: `portal` is derived from the route, so switching
+    // routes (e.g. "/" -> "/driver/dashboard", or "/passenger/..." ->
+    // "/driver/...") changes `portal` and re-runs this effect -- but React
+    // still renders route guards (ProtectedRoute/PublicRoute) with the
+    // PREVIOUS portal's already-settled `loading`/`user` values for at
+    // least one frame before this effect's promises resolve. If the
+    // previous portal had already settled to `loading: false, user: null`
+    // (e.g. the public landing page, where portal is null), a route guard
+    // reading that stale snapshot for the new protected route sees "not
+    // loading, no user" and immediately redirects back out -- which, if
+    // something then navigates back in, becomes a redirect loop. Setting
+    // `loading` true here, synchronously in the effect body (not inside
+    // the awaited init()/loadSession()), closes that window: every portal
+    // transition shows the loading spinner until this portal's session is
+    // actually known, instead of ever acting on another portal's stale
+    // state.
+    setLoading(true);
+
     async function loadSession(session) {
       setLoading(true);
       try {
@@ -235,10 +257,11 @@ export function AuthProvider({ children }) {
     }
     init();
 
-    const { data: { subscription } } = client.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = client.auth.onAuthStateChange((event, session) => {
       if (cancelled) return;
       // NOTE: this fires on every sign-in/sign-out/token-refresh, not just
-      // the initial page load. It MUST also toggle `loading` (via
+      // the initial page load. For SIGNED_IN/SIGNED_OUT/USER_UPDATED/
+      // initial-session events it MUST also toggle `loading` (via
       // loadSession) -- otherwise a page like AdminLogin.jsx that
       // navigates right after supabase.auth.signInWithPassword() resolves
       // can land on a protected route a beat before `profile` has
@@ -247,6 +270,20 @@ export function AuthProvider({ children }) {
       // read `isAdmin: false` (profile still null) and bounce straight
       // back to the login page -- which looks exactly like "nothing
       // happens when I try to log in".
+      //
+      // TOKEN_REFRESHED is different: it's a routine background event that
+      // doesn't change WHO is signed in or their role, and it fires in
+      // EVERY tab/client that shares this portal's storage key -- so a
+      // driver working in one tab gets one every time a sibling tab (or
+      // this one) silently rotates the access token. Routing it through
+      // loadSession() would flip `loading` true and re-fetch profiles for
+      // no reason, flashing the loading spinner over an already-working
+      // dashboard. Just keep `user` in sync with the (possibly rotated)
+      // session and leave `loading`/profiles alone.
+      if (event === 'TOKEN_REFRESHED') {
+        setUser(session?.user ?? null);
+        return;
+      }
       loadSession(session);
     });
 

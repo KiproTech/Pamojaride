@@ -1,0 +1,55 @@
+-- ============================================================================
+-- PamojaRide — Fix: missing GRANT on public.support_contacts.
+-- Run this once in the Supabase SQL Editor. Purely additive: it only adds
+-- the one missing table-level privilege grant. No table, column, RLS
+-- policy, trigger, or RPC is touched, dropped, or replaced. No data is
+-- touched.
+-- ============================================================================
+--
+-- ROOT CAUSE:
+--
+--   admin_support_contacts_foundation.sql created public.support_contacts,
+--   enabled RLS on it, and added two policies — SELECT for `authenticated`
+--   ("authenticated users can view support contacts") and UPDATE
+--   restricted to admins ("admin can update support contacts") — but
+--   never ran the underlying GRANT statements for either. In Postgres, a
+--   role needs the base table-level privilege (GRANT) before RLS policies
+--   are ever consulted; RLS filters which *rows* a role may act on, it
+--   doesn't confer the right to touch the table at all. Without the
+--   grants:
+--     - every SELECT from `authenticated` (fetchSupportContacts(), called
+--       by every signed-in passenger/driver/admin) fails with 42501
+--       "permission denied for table support_contacts" — this is the
+--       error actually observed and reported.
+--     - every UPDATE from `authenticated` (updateSupportContacts(),
+--       called from the Admin → Support Contacts settings page) would
+--       fail with the identical 42501 the moment an admin tried to save
+--       — not yet reported, but the same missing-grant bug and certain
+--       to surface next.
+--
+--   Confirmed by inspection: every other table/RPC in this project
+--   already has its corresponding GRANT statement(s); support_contacts
+--   was the one migration that omitted them entirely.
+--
+-- FIX:
+--
+--   Grant SELECT and UPDATE on the table to `authenticated`, matching
+--   each existing RLS policy's intent exactly:
+--     - SELECT: any signed-in user may read the single support-contacts
+--       row (unchanged from the original policy's design).
+--     - UPDATE: granting the base privilege to `authenticated` does NOT
+--       widen who can actually write — the existing admin-only RLS policy
+--       ("admin can update support contacts", USING/WITH CHECK
+--       public.is_admin(auth.uid())) still rejects any non-admin's
+--       update. The grant merely lets the role attempt the operation at
+--       all so RLS gets a chance to evaluate it; a non-admin's update
+--       still fails, now correctly via RLS rather than via a table-level
+--       permission error that would have blocked admins too.
+--   No INSERT/DELETE grant is added — the foundation migration
+--   deliberately left those without any RLS policy so the singleton row
+--   can never be duplicated or removed through the app; adding a grant
+--   without a matching policy would have no effect (RLS still denies by
+--   default) so none is needed.
+-- ============================================================================
+
+GRANT SELECT, UPDATE ON public.support_contacts TO authenticated;

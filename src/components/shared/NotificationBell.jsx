@@ -148,11 +148,14 @@ export default function NotificationBell() {
       </button>
 
       {open && (
-        <div style={{
-          position: 'absolute', top: '100%', right: 0, marginTop: 8, width: 340,
-          maxHeight: 420, display: 'flex', flexDirection: 'column', background: 'white', borderRadius: 12,
-          border: '1px solid #E2E8F0', boxShadow: '0 12px 32px rgba(0,0,0,0.12)', zIndex: 200,
-        }}>
+        <div
+          className="notif-dropdown"
+          style={{
+            position: 'absolute', top: '100%', right: 0, marginTop: 8, width: 340,
+            maxHeight: 420, display: 'flex', flexDirection: 'column', background: 'white', borderRadius: 12,
+            border: '1px solid #E2E8F0', boxShadow: '0 12px 32px rgba(0,0,0,0.12)', zIndex: 200,
+          }}
+        >
           <div style={{
             padding: '12px 16px', borderBottom: '1px solid #E2E8F0', display: 'flex',
             alignItems: 'center', justifyContent: 'space-between',

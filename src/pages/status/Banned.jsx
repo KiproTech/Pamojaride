@@ -1,17 +1,50 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { fetchSupportContacts } from '../../lib/support/supportContacts';
+import { toTelHref, toWhatsappHref, toMailtoHref, toSafeUrl, displayValue } from '../../lib/support/contactLinks';
 
 // Shown by App.jsx's ProtectedRoute whenever statusFor(role).isBanned is
 // true — before this role's dashboard ever renders. A banned account can
 // still sign out and submit an appeal (stored in the existing `reports`
 // table, category 'other', so admins can review it without a new table),
 // but nothing else.
+//
+// Support contacts shown below come from the SAME centralized,
+// Admin-managed row every other portal reads (database/
+// admin_support_contacts_foundation.sql, lib/support/supportContacts.js —
+// the same fetchSupportContacts()/contactLinks helpers used by
+// Landing.jsx's LandingContactSection and SupportContactsCard.jsx).
+// Nothing here is hardcoded, and a channel Admin hasn't filled in simply
+// never renders.
 export default function Banned({ reason }) {
-  const { user, profile, portal, supabase, signOut } = useAuth();
+  const { user, portal, supabase, signOut } = useAuth();
   const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState('');
+  const [contactsLoading, setContactsLoading] = useState(true);
+  const [contacts, setContacts] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { contacts: data } = await fetchSupportContacts();
+      if (!cancelled) {
+        setContacts(data);
+        setContactsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const channels = contacts ? [
+    { key: 'email', icon: '✉️', label: 'Email', href: toMailtoHref(contacts.support_email), value: displayValue(contacts.support_email) },
+    { key: 'phone', icon: '📞', label: 'Call', href: toTelHref(contacts.support_phone), value: displayValue(contacts.support_phone) },
+    { key: 'whatsapp', icon: '💬', label: 'WhatsApp', href: toWhatsappHref(contacts.whatsapp_number), value: displayValue(contacts.whatsapp_number) },
+    { key: 'facebook', icon: '📘', label: 'Facebook', href: toSafeUrl(contacts.facebook_url), value: 'Facebook' },
+    { key: 'twitter', icon: '🐦', label: 'Twitter / X', href: toSafeUrl(contacts.twitter_url), value: 'Twitter / X' },
+  ].filter(c => c.href) : [];
 
   async function submitAppeal(e) {
     e.preventDefault();
@@ -35,8 +68,9 @@ export default function Banned({ reason }) {
         <span className="badge badge-danger">Account Banned</span>
         <h1 style={{ fontSize: 21, margin: '14px 0 8px' }}>Your {portal} account has been banned</h1>
         <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.7, margin: '0 0 16px' }}>
-          You no longer have access to {portal} features on PamojaRide. If you believe this was a mistake,
-          you can submit information below for our team to review.
+          Your {portal} account on PamojaRide has been permanently banned and you no longer have access to
+          {' '}{portal} features. If you believe this was a mistake, please contact PamojaRide support using
+          the details below, or submit information for our team to review.
         </p>
 
         {reason && (
@@ -69,8 +103,34 @@ export default function Banned({ reason }) {
           </form>
         )}
 
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-          <a className="btn btn-outline btn-sm" href="mailto:support@pamojaride.co.ke">Contact Support</a>
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginBottom: 16 }}>
+          <h3 style={{ fontSize: 14, marginBottom: 10 }}>Contact PamojaRide Support</h3>
+          {contactsLoading ? (
+            <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading contact details…</p>
+          ) : channels.length === 0 ? (
+            <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+              Support contacts will be published here shortly.
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
+              {channels.map(c => (
+                <a
+                  key={c.key}
+                  className="btn btn-outline btn-sm"
+                  href={c.href}
+                  target={c.key === 'facebook' || c.key === 'twitter' || c.key === 'whatsapp' ? '_blank' : undefined}
+                  rel={c.key === 'facebook' || c.key === 'twitter' || c.key === 'whatsapp' ? 'noopener noreferrer' : undefined}
+                  title={c.value}
+                >
+                  <span aria-hidden="true">{c.icon}</span> {c.label}
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+          <Link className="btn btn-outline btn-sm" to="/">Return to Landing Page</Link>
           <button className="btn btn-ghost btn-sm" onClick={signOut}>Log out</button>
         </div>
       </div>

@@ -39,6 +39,8 @@ const NAV_BY_ROLE = {
     { to: '/admin/support', label: 'Help & Support', icon: '🆘' },
     { to: '/admin/notifications', label: 'Notifications', icon: '🔔' },
     { to: '/admin/audit-log', label: 'Audit Log', icon: '📋' },
+    { to: '/admin/settings/support-contacts', label: 'Settings', icon: '⚙️' },
+    { to: '/admin/profile', label: 'Profile', icon: '👤' },
   ],
 };
 

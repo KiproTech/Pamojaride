@@ -63,12 +63,40 @@ export default function ResetPassword({ portal }) {
   const [submitting, setSubmitting] = useState(false);
   const submitLockRef = useRef(false);
   const processedRef = useRef(false);
+  // Tracks whether the CURRENTLY-MOUNTED effect instance is still around to
+  // receive the result of processRecoveryLink(). Deliberately a ref that is
+  // reset at the top of every effect invocation (see bug note below),
+  // rather than a `let cancelled = false` local captured by one specific
+  // invocation's closure.
+  const mountedRef = useRef(true);
 
   // ── consume the recovery link exactly once ──────────────────────────
+  //
+  // BUG THIS FIXES: React 18/19 StrictMode (main.jsx wraps the app in
+  // <StrictMode>) intentionally double-invokes effects in development —
+  // setup, then an immediate simulated cleanup, then setup again — on the
+  // SAME component instance, purely to surface effects with missing/buggy
+  // cleanup. `processedRef` correctly stops that second setup from
+  // re-verifying the link (a one-time recovery token must only ever be
+  // consumed once), but the previous code paired that ref-based guard with
+  // a plain `let cancelled = false` LOCAL VARIABLE closed over by the
+  // *first* effect invocation only. StrictMode's simulated cleanup ran
+  // that first invocation's `cancelled = true` almost immediately —
+  // before the awaited `setSession`/`verifyOtp`/`exchangeCodeForSession`
+  // call had resolved — so by the time the real Supabase response came
+  // back, every `if (!cancelled) setStatus(...)` was silently skipped.
+  // The link WAS being verified correctly (the token really was
+  // consumed), the UI simply never found out, so it sat on "Verifying
+  // your link…" forever. Using a ref that's reset to `true` at the start
+  // of every setup (including the guarded-out second one) fixes this:
+  // StrictMode's second setup flips it back to `true` before the first
+  // invocation's async work resolves, while a genuine unmount (no further
+  // setup call) correctly leaves it `false`. No verification/token logic
+  // below was changed — only how the result reaches `setStatus`.
   useEffect(() => {
-    if (processedRef.current) return; // StrictMode-safe: never process twice
+    mountedRef.current = true;
+    if (processedRef.current) return () => { mountedRef.current = false; };
     processedRef.current = true;
-    let cancelled = false;
 
     async function processRecoveryLink() {
       const client = getSupabaseClient(portal);
@@ -80,7 +108,7 @@ export default function ResetPassword({ portal }) {
         || hashParams.get('error') || searchParams.get('error');
       if (linkError) {
         window.history.replaceState({}, document.title, window.location.pathname);
-        if (!cancelled) { setInvalidReason(decodeURIComponent(linkError.replace(/\+/g, ' '))); setStatus('invalid'); }
+        if (mountedRef.current) { setInvalidReason(decodeURIComponent(linkError.replace(/\+/g, ' '))); setStatus('invalid'); }
         return;
       }
 
@@ -95,7 +123,7 @@ export default function ResetPassword({ portal }) {
           const { error } = await client.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
           window.history.replaceState({}, document.title, window.location.pathname);
           if (error) throw error;
-          if (!cancelled) setStatus('ready');
+          if (mountedRef.current) setStatus('ready');
           return;
         }
 
@@ -103,7 +131,7 @@ export default function ResetPassword({ portal }) {
           const { error } = await client.auth.verifyOtp({ token_hash: tokenHash, type: otpType });
           window.history.replaceState({}, document.title, window.location.pathname);
           if (error) throw error;
-          if (!cancelled) setStatus('ready');
+          if (mountedRef.current) setStatus('ready');
           return;
         }
 
@@ -111,7 +139,7 @@ export default function ResetPassword({ portal }) {
           const { error } = await client.auth.exchangeCodeForSession(code);
           window.history.replaceState({}, document.title, window.location.pathname);
           if (error) throw error;
-          if (!cancelled) setStatus('ready');
+          if (mountedRef.current) setStatus('ready');
           return;
         }
 
@@ -121,10 +149,10 @@ export default function ResetPassword({ portal }) {
         // recovery session is still live, so check for one before giving
         // up and calling the link invalid.
         const { data: { session } } = await client.auth.getSession();
-        if (session) { if (!cancelled) setStatus('ready'); return; }
-        if (!cancelled) setStatus('invalid');
+        if (session) { if (mountedRef.current) setStatus('ready'); return; }
+        if (mountedRef.current) setStatus('invalid');
       } catch (err) {
-        if (!cancelled) {
+        if (mountedRef.current) {
           setInvalidReason(err.message || '');
           setStatus('invalid');
         }
@@ -132,7 +160,7 @@ export default function ResetPassword({ portal }) {
     }
 
     processRecoveryLink();
-    return () => { cancelled = true; };
+    return () => { mountedRef.current = false; };
   }, [portal]);
 
   function set(field) {
@@ -175,8 +203,8 @@ export default function ResetPassword({ portal }) {
   }
 
   return (
-    <div style={styles.page}>
-      <div style={styles.card}>
+    <div className="auth-split-page" style={styles.page}>
+      <div className="auth-split-card" style={styles.card}>
         <Link to="/" style={styles.logo}>
           <img src="/Vite.svg" alt="logo" style={{ width: 32, height: 32 }} />
           <span style={styles.logoText}>Pamoja<span style={styles.logoAccent}>Ride</span></span>
@@ -270,7 +298,7 @@ export default function ResetPassword({ portal }) {
         )}
       </div>
 
-      <div style={{ ...styles.panel, background: portal === 'driver'
+      <div className="auth-split-panel" style={{ ...styles.panel, background: portal === 'driver'
         ? 'linear-gradient(135deg, #0F172A 0%, #1E293B 60%, #0F172A 100%)'
         : 'linear-gradient(135deg, #0E7490 0%, #155E75 55%, #0F172A 100%)' }}>
         <div style={styles.panelInner}>

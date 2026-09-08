@@ -7,6 +7,7 @@ import ReportPreviewModal from '../../components/driver/ReportPreviewModal';
 import CancelBookingModal from '../../components/driver/CancelBookingModal';
 import ReportModal from '../../components/shared/ReportModal';
 import { buildDriverBookingReportPdf } from '../../lib/reports/driverBookingReport';
+import { fetchSupportContacts } from '../../lib/support/supportContacts';
 
 const STATUS_TABS = [
   { key: 'all', label: 'All' },
@@ -203,11 +204,19 @@ export default function Bookings() {
         ? `This trip only${statusTab !== 'all' ? ` — ${activeTabLabel}` : ''}`
         : `${activeTabLabel} bookings`;
 
+      // fetchSupportContacts() never throws and falls back to an all-blank
+      // row on error (see lib/support/supportContacts.js), so a support-
+      // contacts fetch failure never blocks report generation — the
+      // footer just falls back to the generic "visit the Support page"
+      // message instead of showing a channel.
+      const { contacts: supportContacts } = await fetchSupportContacts();
+
       const bytes = await buildDriverBookingReportPdf({
         driverName: profile?.full_name || 'Driver',
         driverPhone: profile?.phone || '',
         filterLabel,
         bookings: filtered,
+        supportContacts,
       });
 
       const datePart = new Date().toISOString().slice(0, 10);

@@ -3,17 +3,19 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import ContactSupportForm from './ContactSupportForm';
 import SupportRequestsList from './SupportRequestsList';
+import SupportContactsCard from './SupportContactsCard';
 
 // Shared Help & Support page, used by both portals:
 //   - pages/passenger/Support.jsx (portal="passenger")
 //   - pages/driver/Support.jsx    (portal="driver")
 //
-// Ties together: a short explanation of how to get help, the ALREADY
-// CONFIGURED support email used elsewhere in this project (receipts,
-// PDFs, and the Banned/Suspended/PendingApproval pages all already use
-// support@pamojaride.co.ke — nothing here is invented), a link into the
-// existing Report an Issue flow for misconduct/safety topics, the Contact
-// Support form, and the user's own request history.
+// Ties together: a short explanation of how to get help, the LIVE
+// Admin-managed support contacts (database/admin_support_contacts_
+// foundation.sql, lib/support/supportContacts.js, rendered here by
+// SupportContactsCard — nothing hardcoded, always reflects whatever
+// Admin currently has saved at /admin/settings/support-contacts), a link
+// into the existing Report an Issue flow for misconduct/safety topics,
+// the Contact Support form, and the user's own request history.
 export default function SupportPage({ portal }) {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -46,17 +48,7 @@ export default function SupportPage({ portal }) {
           </ul>
         </div>
 
-        <div className="card card-pad">
-          <h3 style={{ fontSize: 15, marginBottom: 10 }}>Support contact</h3>
-          <p style={{ fontSize: 13.5, color: 'var(--text-secondary, #334155)', margin: '0 0 10px' }}>
-            You can also reach our support team directly by email:
-          </p>
-          <a className="btn btn-outline btn-sm" href="mailto:support@pamojaride.co.ke">support@pamojaride.co.ke</a>
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 12 }}>
-            For the fastest response, submit a request below instead — it's automatically linked to your
-            account and any relevant booking, and you can track its status here.
-          </p>
-        </div>
+        <SupportContactsCard />
       </div>
 
       <div style={{ marginBottom: 20 }}>

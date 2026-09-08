@@ -26,6 +26,15 @@ export default function TripDetails() {
   const [showBooking, setShowBooking] = useState(false);
   const [justBooked, setJustBooked] = useState(false);
 
+  // Re-fetches just the trip row (seats/status can change from this
+  // passenger's own booking, or from someone else booking concurrently)
+  // without re-running the driver-preview/reviews fetches every time.
+  async function reloadTrip() {
+    const { data: tripData, error: tripErr } = await supabase.from('trips').select('*').eq('id', tripId).single();
+    if (tripErr) return;
+    setTrip(tripData);
+  }
+
   useEffect(() => {
     let active = true;
     async function load() {
@@ -149,7 +158,7 @@ export default function TripDetails() {
         <BookingModal
           trip={trip}
           onClose={() => setShowBooking(false)}
-          onSuccess={() => { setShowBooking(false); setJustBooked(true); }}
+          onSuccess={() => { setShowBooking(false); setJustBooked(true); reloadTrip(); }}
         />
       )}
     </DashboardLayout>

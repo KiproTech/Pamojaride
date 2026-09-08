@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { fetchPassengerBookingDetail, fetchDriverBookingDetail } from '../../lib/bookingDetails';
 import { buildBookingReceiptPdf } from '../../lib/reports/receiptPdf';
+import { fetchSupportContacts } from '../../lib/support/supportContacts';
 import PdfPreviewModal from './PdfPreviewModal';
 
 const BOOKING_STATUS_BADGE = {
@@ -88,10 +89,17 @@ export default function BookingDetailsView({ portal }) {
     setGeneratingReceipt(true);
     setReceiptError('');
     try {
+      // fetchSupportContacts() never throws and falls back to an all-blank
+      // row on error (see lib/support/supportContacts.js), so a support-
+      // contacts fetch failure never blocks receipt generation — the
+      // footer just falls back to the generic "visit the Support page"
+      // message instead of showing a channel.
+      const { contacts: supportContacts } = await fetchSupportContacts();
       const bytes = await buildBookingReceiptPdf({
         portal,
         booking,
         viewerName: profile?.full_name || '',
+        supportContacts,
       });
       const filename = `pamojaride-receipt-${booking.booking_reference || booking.booking_id}.pdf`;
       const blob = new Blob([bytes], { type: 'application/pdf' });

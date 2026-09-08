@@ -1,0 +1,19 @@
+-- ============================================================================
+-- PamojaRide — Task 10: Update driver booking report (route distance).
+-- ============================================================================
+--
+-- HISTORICAL NOTE: no database changes were made for Task 10 itself (that
+-- task's instructions explicitly said not to modify the database), even
+-- though src/lib/reports/driverBookingReport.js was already updated then to
+-- render a per-trip "Distance" line whenever a booking row happens to carry
+-- a `route_distance_km` field. At that point, get_driver_trip_bookings()
+-- (the RPC backing this report) did not select that column, so the line
+-- never actually appeared.
+--
+-- RESOLVED in Task 14: see database/driver_trip_bookings_route_distance.sql,
+-- which extends get_driver_trip_bookings() to also return
+-- trips.route_distance_km. Run that migration (after
+-- driver_booking_report_fields.sql) for the report's Distance line to
+-- populate. No further action is needed in this file — it's kept only for
+-- history.
+-- ============================================================================

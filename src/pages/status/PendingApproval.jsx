@@ -1,5 +1,8 @@
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { fetchSupportContacts } from '../../lib/support/supportContacts';
+import { toMailtoHref } from '../../lib/support/contactLinks';
 
 // Shown by App.jsx's ProtectedRoute for driver routes whenever the
 // driver's verification_status isn't 'verified' (and the account isn't
@@ -21,6 +24,21 @@ import { useAuth } from '../../context/AuthContext';
 export default function PendingApproval() {
   const { profile, driverProfile, verificationStatus, signOut } = useAuth();
   const navigate = useNavigate();
+  // Centralized Support Contacts (src/lib/support/supportContacts.js /
+  // database/admin_support_contacts_foundation.sql) instead of a
+  // hardcoded address — null until loaded, and stays null (no button
+  // rendered below) if no support email is currently configured, rather
+  // than ever pointing "Contact Support" at a broken mailto: link.
+  const [supportEmailHref, setSupportEmailHref] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { contacts } = await fetchSupportContacts();
+      if (!cancelled) setSupportEmailHref(toMailtoHref(contacts?.support_email));
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const awaitingReview = ['pending_verification', 'under_review'].includes(verificationStatus);
   const rejected = verificationStatus === 'rejected';
@@ -79,7 +97,9 @@ export default function PendingApproval() {
               {rejected ? 'Resubmit documents →' : 'Complete verification →'}
             </button>
           )}
-          <a className="btn btn-outline btn-sm" href="mailto:support@pamojaride.co.ke">Contact Support</a>
+          {supportEmailHref && (
+            <a className="btn btn-outline btn-sm" href={supportEmailHref}>Contact Support</a>
+          )}
           <button className="btn btn-ghost btn-sm" onClick={signOut}>Log out</button>
         </div>
 

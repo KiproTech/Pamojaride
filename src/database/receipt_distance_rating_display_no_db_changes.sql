@@ -1,0 +1,22 @@
+-- ============================================================================
+-- PamojaRide — Task 9: Add trip distance and driver rating to passenger
+-- receipt.
+-- ============================================================================
+--
+-- NO DATABASE CHANGES WERE REQUIRED FOR THIS TASK.
+--
+-- This task only updates src/lib/reports/receiptPdf.js (client-side PDF
+-- rendering) to display three fields that are already returned by the
+-- RPCs delivered in prior tasks:
+--
+--   - route_distance_km, driver_avg_rating, driver_rating_count were
+--     added to get_passenger_booking_detail() in
+--     passenger_booking_detail_route_rating.sql (Task 7).
+--   - The same three fields were added to get_driver_booking_detail() in
+--     driver_booking_detail_route_rating.sql (Task 8).
+--
+-- receiptPdf.js already receives whatever those RPCs return, passed
+-- straight through by src/lib/bookingDetails.js — no new query, table,
+-- column, RLS policy, or RPC is needed to satisfy this task. No SQL
+-- migration accompanies it.
+-- ============================================================================

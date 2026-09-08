@@ -771,3 +771,143 @@ h1, h2, h3, h4 { font-family: var(--font-display); line-height: 1.2; }
   .dashboard-body { padding: 0 !important; }
   .page-layout, .dashboard-main { display: block !important; }
 }
+
+/* ============================================================================
+   Auth split-screen pages (Login / Register / Forgot Password / Reset
+   Password, both portals) — responsive fix.
+   ----------------------------------------------------------------------------
+   These pages render a fixed-width (480px, flex-shrink: 0) form card next
+   to a decorative marketing panel via inline JS style objects. There was no
+   breakpoint at all, so on mobile and narrow tablet widths the 480px card
+   alone was wider than the viewport — causing horizontal scrolling and cut
+   off form fields/buttons. Below 900px there also isn't real room for the
+   two-column split, so the layout stacks to a single column and the
+   decorative panel (marketing copy only, not needed to use the form) is
+   hidden. Desktop/laptop (>900px) is untouched.
+   `!important` is required here only because the properties being
+   overridden (width/flex-shrink/etc.) are set via inline `style` on the
+   elements, which normal stylesheet rules cannot outrank.
+   ============================================================================ */
+@media (max-width: 900px) {
+  .auth-split-page { flex-direction: column !important; }
+  .auth-split-card { width: 100% !important; flex-shrink: 1 !important; box-shadow: none !important; }
+  .auth-split-panel { display: none !important; }
+}
+@media (max-width: 480px) {
+  .auth-split-card { padding: 40px 20px !important; }
+}
+
+/* ============================================================================
+   Notification bell dropdown — responsive fix.
+   ----------------------------------------------------------------------------
+   The dropdown is a fixed 340px panel positioned `right: 0` relative to the
+   bell icon, which sits to the left of the account menu in the topbar (not
+   at the topbar's own right edge). On phone-width screens that math pushes
+   the dropdown's left edge off-screen (verified: e.g. at 375px viewport
+   width, ~120px of it renders past the left edge), causing horizontal
+   overflow/cut-off content. Below 560px, this pins the dropdown to the
+   viewport instead of the bell so it always stays fully on-screen; nothing
+   changes above 560px (tablet/laptop/desktop keep the original layout).
+   ============================================================================ */
+@media (max-width: 560px) {
+  .notif-dropdown {
+    position: fixed !important;
+    top: 64px !important;
+    left: 12px !important;
+    right: 12px !important;
+    width: auto !important;
+  }
+}
+
+/* ============================================================================
+   Landing page — redesign.
+   ----------------------------------------------------------------------------
+   Layout-critical rules (grid columns, section padding, hero sizing) live
+   here as real classes instead of inline JS styles so they can actually
+   respond via @media queries. Fluid units (clamp/minmax/auto-fit) are used
+   first so most of the page reflows without needing a breakpoint at all;
+   the few breakpoints below only handle what fluid sizing can't (the nav
+   action row wrapping, hero copy shrinking further on very small phones).
+   Nothing here is scoped outside `.landing-*` / `.lp-*`, so no other page
+   is affected.
+   ============================================================================ */
+.landing-page { background: var(--white); min-height: 100vh; overflow-x: hidden; }
+
+.landing-nav {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+  padding: 14px clamp(16px, 4vw, 48px);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(255,255,255,0.95);
+  backdrop-filter: blur(10px);
+}
+.landing-nav-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+
+.landing-hero {
+  background: linear-gradient(135deg, #0E7490 0%, #155E75 60%, #0F172A 100%);
+  padding: clamp(48px, 8vw, 96px) clamp(16px, 4vw, 48px);
+  position: relative; overflow: hidden;
+}
+.landing-hero-inner { max-width: 780px; margin: 0 auto; position: relative; text-align: center; }
+.landing-hero-glow {
+  position: absolute; top: -80px; right: -80px; width: 400px; height: 400px;
+  background: radial-gradient(circle, rgba(249,115,22,0.18) 0%, transparent 70%);
+  border-radius: 50%;
+}
+.landing-hero h1 { font-size: clamp(30px, 5.5vw, 52px); }
+.landing-hero p.lp-subtext { font-size: clamp(15px, 2vw, 18px); }
+
+.lp-cta-row {
+  display: flex; gap: 14px; flex-wrap: wrap; justify-content: center;
+  margin-top: 32px;
+}
+.lp-cta-row .btn { flex: 1 1 220px; max-width: 280px; justify-content: center; }
+
+.lp-section { padding: clamp(40px, 6vw, 72px) clamp(16px, 4vw, 48px); }
+.lp-section-inner { max-width: 900px; margin: 0 auto; }
+.lp-section-head { text-align: center; margin-bottom: clamp(28px, 4vw, 44px); }
+.lp-section-head h2 { font-size: clamp(24px, 3.5vw, 32px); margin-bottom: 8px; }
+.lp-section-head p { color: var(--text-muted); font-size: 15px; }
+
+.lp-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 20px;
+}
+.lp-step {
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: 14px; padding: 24px 20px; text-align: center;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.05);
+}
+.lp-step-num {
+  width: 36px; height: 36px; margin: 0 auto 14px;
+  background: var(--primary-xlight); color: var(--primary);
+  border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display); font-weight: 800; font-size: 15px;
+}
+.lp-step h4 { font-size: 15px; margin-bottom: 6px; }
+.lp-step p { font-size: 13.5px; color: var(--text-muted); line-height: 1.6; }
+
+.lp-contact-channels {
+  display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;
+}
+
+.landing-footer {
+  padding: 24px clamp(16px, 4vw, 48px);
+  border-top: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 14px;
+}
+.landing-footer-links { display: flex; gap: 20px; flex-wrap: wrap; font-size: 13px; }
+.landing-footer-links a { color: var(--text-muted); }
+.landing-footer-links a:hover { color: var(--text); }
+.landing-footer-copy { font-size: 13px; color: var(--text-muted); }
+
+@media (max-width: 640px) {
+  .landing-nav { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .landing-nav-actions { width: 100%; justify-content: stretch; }
+  .landing-nav-actions .btn { flex: 1 1 auto; }
+  .lp-cta-row .btn { flex: 1 1 100%; max-width: none; }
+  .landing-footer { flex-direction: column; align-items: flex-start; }
+}

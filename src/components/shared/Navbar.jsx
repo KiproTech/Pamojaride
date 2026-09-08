@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import NotificationBell from './NotificationBell';
 
-const ROLE_HOME = { driver: '/driver/profile', passenger: '/passenger/profile', admin: '/admin/dashboard' };
+const ROLE_HOME = { driver: '/driver/profile', passenger: '/passenger/profile', admin: '/admin/profile' };
 
 // Which portal is currently being viewed. One identity can have both a
 // driver and a passenger profile, so this can't come from a single
@@ -55,7 +55,11 @@ export default function Navbar({ title, onMenuClick }) {
         <div className="topbar-user-menu" ref={ref}>
           <button className="topbar-user-btn" onClick={() => setOpen(o => !o)}>
             <span style={{ position: 'relative', display: 'inline-flex' }}>
-              <span className="topbar-avatar">{initials(profile?.full_name)}</span>
+              <span className="topbar-avatar" style={profile?.profile_picture ? { padding: 0, overflow: 'hidden' } : undefined}>
+                {profile?.profile_picture
+                  ? <img src={profile.profile_picture} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
+                  : initials(profile?.full_name)}
+              </span>
               {isDriverVerified && (
                 <span
                   title="Verified driver"

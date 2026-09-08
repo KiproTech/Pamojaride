@@ -55,14 +55,31 @@ export default function ForgotPassword({ portal }) {
     setLoading(true);
     try {
       const client = getSupabaseClient(portal);
+
+      // Verify the email belongs to an existing, registered account for
+      // THIS portal before doing anything else. `email_is_registered` is a
+      // SECURITY DEFINER RPC (see database/password_reset_and_trips_completed_fix.sql)
+      // that returns only a plain boolean — it never leaks a name, phone,
+      // account status, or any other field, and it runs under RLS exactly
+      // like every other query here (this app's anon key can't read
+      // `profiles` directly). It's scoped to `portal` the same way sign-in
+      // already is (see DriverLogin.jsx/PassengerLogin.jsx rejecting a
+      // login when the identity has no matching role profile), so a
+      // driver-only email correctly reports "no account" on the passenger
+      // reset page and vice versa.
+      const { data: isRegistered, error: lookupError } = await client.rpc('email_is_registered', {
+        p_email: cleanEmail,
+        p_portal: portal,
+      });
+      if (lookupError) throw new Error(lookupError.message || 'Could not verify that email. Please try again.');
+
+      if (!isRegistered) {
+        setError(`No ${portal} account exists with that email address.`);
+        return;
+      }
+
       const redirectTo = `${window.location.origin}/${portal}/reset-password`;
       const { error: resetError } = await client.auth.resetPasswordForEmail(cleanEmail, { redirectTo });
-
-      // Deliberately show the same success message whether or not an
-      // account exists for this email — this is the standard, recommended
-      // way to avoid leaking which emails are registered. Supabase itself
-      // does not report "no such user" for this call, so this is also
-      // just accurately reflecting what actually happened.
       if (resetError) throw new Error(resetError.message || 'Could not send the reset email. Please try again.');
       setSent(true);
     } catch (err) {
@@ -73,8 +90,8 @@ export default function ForgotPassword({ portal }) {
   }
 
   return (
-    <div style={styles.page}>
-      <div style={styles.card}>
+    <div className="auth-split-page" style={styles.page}>
+      <div className="auth-split-card" style={styles.card}>
         <Link to="/" style={styles.logo}>
           <img src="/Vite.svg" alt="logo" style={{ width: 32, height: 32 }} />
           <span style={styles.logoText}>Pamoja<span style={styles.logoAccent}>Ride</span></span>
@@ -86,7 +103,7 @@ export default function ForgotPassword({ portal }) {
           <>
             <h1 style={styles.heading}>Check your email</h1>
             <p style={styles.sub}>
-              If an account exists for <strong>{email.trim()}</strong>, we've sent a link to reset your password.
+              We've sent a password reset link to <strong>{email.trim()}</strong>.
               It may take a minute to arrive — don't forget to check spam/junk.
             </p>
             <div style={{ ...styles.successBox }}>
@@ -136,7 +153,7 @@ export default function ForgotPassword({ portal }) {
         </p>
       </div>
 
-      <div style={{ ...styles.panel, background: portal === 'driver'
+      <div className="auth-split-panel" style={{ ...styles.panel, background: portal === 'driver'
         ? 'linear-gradient(135deg, #0F172A 0%, #1E293B 60%, #0F172A 100%)'
         : 'linear-gradient(135deg, #0E7490 0%, #155E75 55%, #0F172A 100%)' }}>
         <div style={styles.panelInner}>

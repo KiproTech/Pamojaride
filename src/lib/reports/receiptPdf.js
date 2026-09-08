@@ -1,4 +1,20 @@
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, rgb } from 'pdf-lib';
+import {
+  COLOR_INK,
+  COLOR_MUTED,
+  COLOR_PRIMARY,
+  COLOR_PRIMARY_DARK,
+  COLOR_ACCENT,
+  COLOR_BORDER,
+  COLOR_ROW_ALT,
+  COLOR_WHITE,
+  COLOR_DANGER,
+  COLOR_GREEN,
+  loadReportFonts,
+  formatGeneratedAt,
+  formatPageLabel,
+  drawDocumentFooter,
+} from './documentStyle';
 
 // ============================================================================
 // Booking Receipt — client-side PDF generation.
@@ -23,6 +39,17 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 // never claims money was "paid" or "successful" — it states the booking's
 // actual status and fare amount, worded as a fare/booking record rather
 // than a payment confirmation.
+//
+// Support footer: the footer's contact line comes from the centralized
+// Support Contacts system (src/lib/support/supportContacts.js /
+// database/admin_support_contacts_foundation.sql) — the same admin-managed
+// email/phone/WhatsApp/Facebook/Twitter shown on the Help & Support pages
+// (SupportContactsCard.jsx). Nothing is hardcoded here: the caller fetches
+// the current contacts via fetchSupportContacts() and passes them in as
+// `supportContacts`; this module passes them straight through to the
+// shared drawDocumentFooter() helper (./documentStyle.js), which formats
+// them (via formatSupportFooterLine) and draws whatever comes back,
+// omitting any channel that isn't set up.
 // ============================================================================
 
 const PAGE_WIDTH = 595.28;  // A4 @ 72dpi
@@ -30,17 +57,9 @@ const PAGE_HEIGHT = 841.89;
 const MARGIN = 44;
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
 
-// Brand palette — matches src/styles/global.css / driverBookingReport.js
-const COLOR_INK = rgb(0.06, 0.09, 0.16);          // #0F172A
-const COLOR_MUTED = rgb(0.39, 0.45, 0.55);        // #64748B
-const COLOR_PRIMARY = rgb(0.055, 0.455, 0.565);   // #0E7490
-const COLOR_PRIMARY_DARK = rgb(0.084, 0.369, 0.459); // #155E75
-const COLOR_ACCENT = rgb(0.976, 0.451, 0.086);    // #F97316
-const COLOR_BORDER = rgb(0.886, 0.910, 0.941);    // #E2E8F0
-const COLOR_ROW_ALT = rgb(0.973, 0.980, 0.988);   // #F8FAFC
-const COLOR_WHITE = rgb(1, 1, 1);
-const COLOR_DANGER = rgb(0.937, 0.267, 0.267);    // #EF4444
-const COLOR_GREEN = rgb(0.086, 0.639, 0.290);     // #16A34A
+// Brand palette shared with driverBookingReport.js now lives in
+// ./documentStyle.js (imported above). COLOR_AMBER is unique to this
+// document (refund-status note) so it stays local.
 const COLOR_AMBER = rgb(0.573, 0.251, 0.055);     // #92400E
 
 const BOOKING_STATUS_LABEL = {
@@ -72,6 +91,30 @@ function fmtDateTime(value) {
   });
 }
 
+// route_distance_km can be null (older trips, or a distance that couldn't be
+// computed at creation time — see trip_location_route_validation.sql) — in
+// that case the caller simply omits the row rather than showing "— km".
+function fmtDistanceKm(value) {
+  if (value === null || value === undefined) return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return `${n.toFixed(1)} km`;
+}
+
+// driver_avg_rating / driver_rating_count come from get_passenger_booking_detail()
+// / get_driver_booking_detail(), aggregated live from public.ratings — a
+// driver with no qualifying ratings gets avg_rating = NULL, rating_count = 0.
+// Per product decision this reads as "Not yet rated", never a fake "0.0".
+// No star glyph: pdf-lib's standard Helvetica font uses WinAnsi encoding,
+// which has no glyph for U+2605 and throws at render time — same reason
+// routeText below spells out "->" instead of "→".
+function formatDriverRatingLine(avgRating, ratingCount) {
+  if (avgRating === null || avgRating === undefined) return 'Driver rating: Not yet rated';
+  const count = Number(ratingCount) || 0;
+  const countLabel = count === 1 ? '1 rating' : `${count} ratings`;
+  return `Driver rating: ${Number(avgRating).toFixed(2)}/5 (${countLabel})`;
+}
+
 function truncateToWidth(text, font, size, maxWidth) {
   const str = String(text ?? '');
   if (font.widthOfTextAtSize(str, size) <= maxWidth) return str;
@@ -91,17 +134,25 @@ function truncateToWidth(text, font, size, maxWidth) {
  *   or get_driver_booking_detail()'s return type.
  * @param {string} params.viewerName - the signed-in user's own name (for the
  *   "Issued to" line), taken straight from their own profile.
+ * @param {Object} [params.supportContacts] - the row resolved by
+ *   fetchSupportContacts() (src/lib/support/supportContacts.js), i.e. the
+ *   same centrally admin-managed support_email/support_phone/whatsapp_number/
+ *   facebook_url/twitter_url used by SupportContactsCard.jsx. This module
+ *   never fetches it itself (see file header) — the caller (currently
+ *   BookingDetailsView.jsx) fetches once and passes the result straight
+ *   through. Safe to omit or pass a fetch failure's fallback value: any
+ *   missing/blank field is simply left out of the footer, and if every
+ *   field is blank the footer falls back to a generic message rather than
+ *   drawing anything broken.
  */
-export async function buildBookingReceiptPdf({ portal, booking, viewerName }) {
+export async function buildBookingReceiptPdf({ portal, booking, viewerName, supportContacts }) {
   const pdfDoc = await PDFDocument.create();
   pdfDoc.setTitle(`PamojaRide Receipt ${booking.booking_reference || ''}`.trim());
   pdfDoc.setAuthor('PamojaRide');
   pdfDoc.setSubject(`Booking receipt for ${booking.booking_reference || 'booking'}`);
   pdfDoc.setProducer('PamojaRide');
 
-  const regular = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-  const italic = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
+  const { regular, bold, italic } = await loadReportFonts(pdfDoc);
 
   const generatedAt = new Date();
   const receiptNo = `PR-RCPT-${(booking.booking_reference || booking.booking_id || '').toString().replace(/[^a-zA-Z0-9]/g, '').slice(-10).toUpperCase()}`;
@@ -150,7 +201,7 @@ export async function buildBookingReceiptPdf({ portal, booking, viewerName }) {
     ['Booking Reference', booking.booking_reference || '—'],
     ['Booking Date', fmtDateTime(booking.booking_created_at)],
     ['Issued To', viewerName || (portal === 'passenger' ? 'Passenger' : 'Driver')],
-    ['Generated', fmtDateTime(generatedAt)],
+    ['Generated', formatGeneratedAt(generatedAt)],
   ];
   const metaColWidth = CONTENT_WIDTH / 2;
   metaLines.forEach(([label, value], i) => {
@@ -184,6 +235,13 @@ export async function buildBookingReceiptPdf({ portal, booking, viewerName }) {
     ['Vehicle', [booking.vehicle_make, booking.vehicle_model].filter(Boolean).join(' ') || '—'],
     ['Plate', booking.vehicle_plate || '—'],
   ];
+  // route_distance_km is only appended when present — null/undefined
+  // (older trips, or a distance OSRM couldn't compute) means the row is
+  // omitted entirely rather than showing a placeholder.
+  const distanceLabel = fmtDistanceKm(booking.route_distance_km);
+  if (distanceLabel) {
+    tripRows.push(['Distance', distanceLabel]);
+  }
   tripRows.forEach(([label, value], i) => {
     const col = i % 2;
     const row = Math.floor(i / 2);
@@ -216,7 +274,21 @@ export async function buildBookingReceiptPdf({ portal, booking, viewerName }) {
   page.drawText(counterpartName || 'Not available', { x: MARGIN, y, size: 12.5, font: bold, color: COLOR_INK });
   y -= 15;
   page.drawText(counterpartPhone || '—', { x: MARGIN, y, size: 10, font: regular, color: COLOR_MUTED });
-  y -= 26;
+  y -= 15;
+
+  // Driver rating: passenger receipts only. get_driver_booking_detail()
+  // (driver portal) has never returned a passenger rating field, and this
+  // change doesn't add one — only the driver's own rating is ever shown,
+  // and only on the passenger side.
+  if (portal === 'passenger') {
+    page.drawText(
+      formatDriverRatingLine(booking.driver_avg_rating, booking.driver_rating_count),
+      { x: MARGIN, y, size: 10, font: regular, color: COLOR_MUTED }
+    );
+    y -= 15;
+  }
+
+  y -= 11;
 
   page.drawLine({ start: { x: MARGIN, y }, end: { x: PAGE_WIDTH - MARGIN, y }, thickness: 1, color: COLOR_BORDER });
   y -= 24;
@@ -271,14 +343,14 @@ export async function buildBookingReceiptPdf({ portal, booking, viewerName }) {
   );
 
   // ── footer ──────────────────────────────────────────────────────────
-  const footerY = 34;
-  page.drawLine({ start: { x: MARGIN, y: footerY + 16 }, end: { x: PAGE_WIDTH - MARGIN, y: footerY + 16 }, thickness: 0.75, color: COLOR_BORDER });
-  page.drawText('PamojaRide · Need help with a booking? support@pamojaride.co.ke', {
-    x: MARGIN, y: footerY, size: 8.5, font: regular, color: COLOR_MUTED,
+  drawDocumentFooter({
+    page,
+    regularFont: regular,
+    margin: MARGIN,
+    contentWidth: CONTENT_WIDTH,
+    pageLabel: formatPageLabel(1),
+    supportContacts,
   });
-  const pageLabel = 'Page 1';
-  const pw = regular.widthOfTextAtSize(pageLabel, 8.5);
-  page.drawText(pageLabel, { x: PAGE_WIDTH - MARGIN - pw, y: footerY, size: 8.5, font: regular, color: COLOR_MUTED });
 
   return pdfDoc.save();
 }

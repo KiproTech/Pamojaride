@@ -137,15 +137,15 @@ export default function PassengerRegister() {
 
   if (needsEmailConfirmation) {
     return (
-      <div style={styles.page}>
-        <div style={styles.panel}>
+      <div className="auth-split-page" style={styles.page}>
+        <div className="auth-split-panel" style={styles.panel}>
           <div style={styles.panelInner}>
             <div style={styles.panelBadge}>🇰🇪 Free to join</div>
             <h2 style={styles.panelHeading}>Travel smarter<br />across Kenya.</h2>
             <p style={styles.panelSub}>Verified drivers. Real-time updates. M-Pesa payments. Book your seat before you leave the house.</p>
           </div>
         </div>
-        <div style={styles.card}>
+        <div className="auth-split-card" style={styles.card}>
           <Link to="/" style={styles.logo}>
             <img src="/Vite.svg" alt="logo" style={{ width: 32, height: 32 }} />
             <span style={styles.logoText}>Pamoja<span style={styles.logoAccent}>Ride</span></span>
@@ -164,8 +164,8 @@ export default function PassengerRegister() {
   }
 
   return (
-    <div style={styles.page}>
-      <div style={styles.panel}>
+    <div className="auth-split-page" style={styles.page}>
+      <div className="auth-split-panel" style={styles.panel}>
         <div style={styles.panelInner}>
           <div style={styles.panelBadge}>🇰🇪 Free to join</div>
           <h2 style={styles.panelHeading}>Travel smarter<br />across Kenya.</h2>
@@ -178,7 +178,7 @@ export default function PassengerRegister() {
         </div>
       </div>
 
-      <div style={styles.card}>
+      <div className="auth-split-card" style={styles.card}>
         <Link to="/" style={styles.logo}>
           <img src="/Vite.svg" alt="logo" style={{ width: 32, height: 32 }} />
           <span style={styles.logoText}>Pamoja<span style={styles.logoAccent}>Ride</span></span>

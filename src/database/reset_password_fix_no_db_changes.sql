@@ -1,0 +1,20 @@
+-- ============================================================================
+-- PamojaRide — Fix: password-reset link stuck on "Verifying your link…".
+-- ============================================================================
+--
+-- NO DATABASE CHANGES WERE REQUIRED FOR THIS FIX.
+--
+-- Root cause: a client-side React state-update bug in
+-- src/pages/auth/ResetPassword.jsx (see accompanying summary for details).
+-- The recovery token itself was already being verified and consumed
+-- correctly, exactly once, by Supabase Auth — nothing about token
+-- generation, verification, expiry, single-use enforcement, or password
+-- storage lives in this project's own schema/RLS, and none of it was
+-- touched. Supabase Auth (auth.users / auth.sessions / one-time recovery
+-- tokens) remains the sole source of truth for password recovery, exactly
+-- as before.
+--
+-- This file is provided per the task's reporting requirements, so there is
+-- always a SQL artifact accompanying a fix, even when — as here — the
+-- correct and smallest fix was entirely in the frontend.
+-- ============================================================================

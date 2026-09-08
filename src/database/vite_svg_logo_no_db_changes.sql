@@ -1,0 +1,10 @@
+-- ============================================================================
+-- PamojaRide — Task 11: Make Vite.svg the only project logo.
+-- ============================================================================
+--
+-- NO DATABASE CHANGES WERE REQUIRED FOR THIS TASK.
+--
+-- This was a static-asset / frontend-only change (logo references in JSX,
+-- and the project's index.html). Nothing here touches Supabase, tables,
+-- RLS policies, or any RPC.
+-- ============================================================================

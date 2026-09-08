@@ -1,0 +1,33 @@
+-- ============================================================================
+-- PamojaRide — Final visual improvements: landing page logo, Banned page,
+-- Suspended page.
+-- ============================================================================
+--
+-- NO DATABASE CHANGES WERE REQUIRED FOR THIS TASK.
+--
+-- 1. Landing page logo area (src/pages/Landing.jsx)
+--    Pure frontend/styling change: removed the blue gradient container
+--    behind the /Vite.svg logo mark and replaced it with a plain white
+--    background, sized up slightly for visibility. No new asset was
+--    added and no data is involved.
+--
+-- 2. Banned page (src/pages/status/Banned.jsx)
+-- 3. Suspended page (src/pages/status/Suspended.jsx)
+--    Both pages already read the centralized Support Contacts row via
+--    lib/support/supportContacts.js's fetchSupportContacts(), which
+--    selects from public.support_contacts. That table, its columns
+--    (support_email, support_phone, whatsapp_number, facebook_url,
+--    twitter_url), and its "authenticated users can view support
+--    contacts" SELECT policy already exist from
+--    database/admin_support_contacts_foundation.sql — a banned or
+--    suspended account is still an authenticated Supabase user (only
+--    restricted at the application/route level by App.jsx's
+--    ProtectedRoute), so it already has read access to that row under
+--    the existing policy. This task only changed which columns the two
+--    pages render (all five channels instead of email only) and added a
+--    "Return to Landing Page" link — no schema, RLS, or RPC changes were
+--    needed.
+--
+-- Nothing here touches Supabase tables, RLS policies, triggers, or any
+-- RPC function.
+-- ============================================================================
