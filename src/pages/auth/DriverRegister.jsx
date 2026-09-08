@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { validateRegistrationForm } from '../../lib/validation';
+import { TERMS_VERSION, DRIVER_DOCUMENT_NOTICE_POINTS } from '../../lib/legal/termsContent';
+import { acceptTermsForUser } from '../../lib/legal/consent';
+import TermsPrivacyModal from '../../components/shared/TermsPrivacyModal';
 
 function PasswordInput({ value, onChange, inputStyle }) {
   const [visible, setVisible] = useState(false);
@@ -44,6 +47,8 @@ export default function DriverRegister() {
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
   const [needsEmailConfirmation, setNeedsEmailConfirmation] = useState(false);
+  const [agreed, setAgreed] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
   const navigate = useNavigate();
 
   function set(field) { return e => setForm(f => ({ ...f, [field]: e.target.value })); }
@@ -60,6 +65,11 @@ export default function DriverRegister() {
     // clearer message for the same failures plus the new two-name check.
     const validation = validateRegistrationForm(form);
     if (!validation.valid) { setError(validation.firstError); return; }
+    // The checkbox is disabled from submitting via the button's `disabled`
+    // attribute below, but that's a UX guard, not a security boundary — a
+    // form can still be submitted programmatically. Re-check here so it's
+    // genuinely impossible to reach signUp() without agreement recorded.
+    if (!agreed) { setError('Please agree to the PamojaRide Terms & Conditions and Privacy Policy to continue.'); return; }
     // Send the trimmed/normalized values (collapsed whitespace, lowercased
     // email) on to Supabase rather than the raw form state.
     const { name, email, phone, password } = validation.values;
@@ -80,6 +90,12 @@ export default function DriverRegister() {
             full_name: name,
             phone,
             role: 'driver',
+            // Picked up by trg_apply_registration_consent (see
+            // src/database/terms_privacy_consent.sql) the moment the new
+            // profiles row is created — the acceptance timestamp itself is
+            // always set server-side from there, never from this client.
+            terms_accepted: true,
+            terms_version: TERMS_VERSION,
           },
         },
       });
@@ -111,6 +127,13 @@ export default function DriverRegister() {
         if (existingDriver) {
           throw new Error('This account already has a driver profile. Please use the driver login instead.');
         }
+
+        // No new profiles row is created on this path (the identity
+        // already exists), so trg_apply_registration_consent never fires
+        // for it. Record the same agreement they just checked on this
+        // form directly — same own-row update every other profile edit in
+        // this app already uses.
+        await acceptTermsForUser(supabase, existingUser.id);
 
         const { error: insertError } = await supabase
           .from('driver_profiles')
@@ -202,7 +225,40 @@ export default function DriverRegister() {
             <PasswordInput value={form.confirm} onChange={set('confirm')} inputStyle={styles.input} />
           </div>
           <div style={styles.infoBox}>🚀 No ID or licence needed to sign up — you'll complete verification from your dashboard whenever you're ready, before posting your first trip.</div>
-          <button type="submit" style={loading ? { ...styles.btn, opacity: 0.7 } : styles.btn} disabled={loading}>
+
+          <div style={styles.docNoticeBox}>
+            <p style={styles.docNoticeTitle}>📄 About your verification documents</p>
+            <ul style={styles.docNoticeList}>
+              {DRIVER_DOCUMENT_NOTICE_POINTS.map((point, i) => (
+                <li key={i} style={styles.docNoticeItem}>{point}</li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              onClick={() => setShowTerms(true)}
+              style={{ ...styles.inlineLinkBtn, color: '#C2410C' }}
+            >
+              Read the full policy
+            </button>
+          </div>
+
+          <label style={styles.agreeRow}>
+            <input
+              type="checkbox"
+              checked={agreed}
+              onChange={e => setAgreed(e.target.checked)}
+              required
+              style={styles.checkbox}
+            />
+            <span>
+              I agree to the PamojaRide{' '}
+              <button type="button" onClick={() => setShowTerms(true)} style={styles.inlineLinkBtn}>
+                Terms & Conditions and Privacy Policy
+              </button>{' '}(including the driver document terms above).
+            </span>
+          </label>
+
+          <button type="submit" style={loading || !agreed ? { ...styles.btn, opacity: 0.7 } : styles.btn} disabled={loading || !agreed}>
             {loading ? 'Creating account…' : 'Create Account →'}
           </button>
         </form>
@@ -210,6 +266,8 @@ export default function DriverRegister() {
         <p style={styles.footer}>Already registered?{' '}<Link to="/driver/login" style={styles.link}>Sign in</Link></p>
         <p style={styles.footer}><Link to="/passenger/register" style={styles.linkMuted}>Register as a passenger instead</Link></p>
       </div>
+
+      {showTerms && <TermsPrivacyModal onClose={() => setShowTerms(false)} highlightSectionId="driver-documents" />}
 
       <div className="auth-split-panel" style={styles.panel}>
         <div style={styles.panelInner}>
@@ -247,6 +305,13 @@ const styles = {
   hint: { fontSize: 12, color: '#94A3B8' },
   input: { padding: '12px 14px', borderRadius: 10, border: '1.5px solid #E2E8F0', fontSize: 15, outline: 'none', background: '#F8FAFC', fontFamily: "'DM Sans', sans-serif", width: '100%', boxSizing: 'border-box' },
   infoBox: { padding: '12px 14px', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 10, fontSize: 13, color: '#166534', lineHeight: 1.6 },
+  docNoticeBox: { padding: '14px 16px', background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 10 },
+  docNoticeTitle: { margin: '0 0 8px', fontSize: 13, fontWeight: 700, color: '#9A3412' },
+  docNoticeList: { margin: '0 0 8px', paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4 },
+  docNoticeItem: { fontSize: 12.5, color: '#9A3412', lineHeight: 1.6 },
+  agreeRow: { display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 13, color: '#374151', lineHeight: 1.6, cursor: 'pointer' },
+  checkbox: { marginTop: 3, width: 16, height: 16, flexShrink: 0, accentColor: '#EA580C', cursor: 'pointer' },
+  inlineLinkBtn: { background: 'none', border: 'none', padding: 0, margin: 0, color: '#EA580C', fontWeight: 700, fontSize: 13, textDecoration: 'underline', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" },
   btn: { marginTop: 4, padding: 14, borderRadius: 10, background: 'linear-gradient(135deg, #EA580C, #C2410C)', color: 'white', fontWeight: 700, fontSize: 15, border: 'none', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", boxShadow: '0 4px 16px rgba(234,88,12,0.3)', width: '100%' },
   footer: { marginTop: 14, fontSize: 13, color: '#64748B', textAlign: 'center' },
   link: { color: '#EA580C', fontWeight: 600, textDecoration: 'none' },

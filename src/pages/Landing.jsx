@@ -200,6 +200,7 @@ export default function Landing() {
           <Link to="/passenger/register">Passenger Sign Up</Link>
           <Link to="/driver/register">Driver Sign Up</Link>
           <Link to="/passenger/login">Login</Link>
+          <Link to="/legal/terms">Terms & Privacy Policy</Link>
         </div>
         <span className="landing-footer-copy">© 2026 PamojaRide · Built for Kenya 🇰🇪</span>
       </footer>

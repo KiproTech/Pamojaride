@@ -1,0 +1,79 @@
+-- ============================================================================
+-- PamojaRide — Fix Driver Verification Document Storage & Admin Access
+-- ============================================================================
+--
+-- NO DATABASE OR STORAGE CHANGES WERE REQUIRED FOR THIS TASK.
+--
+-- INSPECTION FINDINGS (why no migration is needed):
+--
+-- 1. Storage bucket + RLS (database/verification_storage.sql) already:
+--      - creates a PRIVATE "driver-documents" bucket (never public)
+--      - lets a driver insert/select/update/delete only inside their own
+--        `{auth.uid()}/...` folder
+--      - already has an explicit, unrestricted
+--        "admins can read all driver documents" SELECT policy
+--        (checks public.profiles.is_admin = true, with no status
+--        condition), so admin access does NOT depend on the driver's
+--        verification_status or account_status — it already works before
+--        AND after approval.
+--
+-- 2. Table RLS (database/critical_security_fixes.sql,
+--    database/verification_progress_persistence.sql) already grants:
+--      - "admin can read all driver profiles" — admins can SELECT every
+--        driver_profiles row (including the kyc_documents jsonb column)
+--        regardless of status
+--      - "drivers can read own profile" — a driver can still read/resume
+--        their own row
+--    Both policies coexist (Postgres OR's multiple permissive policies),
+--    so neither admin access nor driver self-service was ever blocked.
+--
+-- 3. Upload code (src/lib/verificationDocuments.js) already links every
+--    uploaded file to the correct driver: the storage path is always
+--    `{driverId}/{docType}-{timestamp}.{ext}` where driverId is the
+--    authenticated user's own id, and the returned metadata is merged
+--    into driver_profiles.kyc_documents (src/context/AuthContext.jsx)
+--    keyed by document type, never overwriting other drivers' rows.
+--
+-- CONCLUSION: the actual defect was a missing ADMIN UI SURFACE, not a
+-- broken bucket, policy, or upload path:
+--   - components/admin/KYCReviewer.jsx (the only place documents were
+--     previously visible) is only ever rendered for the "Pending Review"
+--     queue tab of Driver Review — once a driver was approved, the
+--     application had no screen left that read kyc_documents at all.
+--   - pages/admin/UserManagement.jsx ("Manage Users") never selected or
+--     rendered kyc_documents in the first place.
+-- This is why "the driver is asked to upload a vehicle photo, but the
+-- uploaded file is not visible to administrators" was reported — the file
+-- was always safely stored and always admin-readable at the data layer,
+-- there was simply no admin screen presenting it outside the review queue.
+--
+-- FIX APPLIED (frontend only — see accompanying project zip):
+--   - New components/admin/DriverDocumentsGallery.jsx: shared signed-URL
+--     document viewer, extracted from KYCReviewer.jsx so the exact same
+--     rendering logic can be reused anywhere.
+--   - New components/admin/DriverDetailsModal.jsx: "View Driver Details"
+--     modal for Manage Users, using the SAME admin-readable
+--     driver_profiles + profiles query pattern already used by
+--     DriverReview.jsx — works for a driver in ANY verification_status
+--     (pending, verified, rejected) and ANY account_status (active,
+--     suspended, banned), so documents remain reachable after approval.
+--   - pages/admin/UserManagement.jsx: added a "View Driver Details"
+--     button per driver row that opens the modal above.
+--   - src/lib/verificationDocuments.js: DOCUMENT_TYPES trimmed from 6 to
+--     4 (kept National ID, Driving Licence, Vehicle Photo, Face
+--     Verification Photo; dropped Vehicle Logbook and Insurance
+--     Certificate — compliance/ownership paperwork, not core identity or
+--     vehicle verification). Any driver who already uploaded a logbook or
+--     insurance document under the old list keeps that entry in
+--     kyc_documents and it still renders in the admin gallery — nothing
+--     is deleted, it's just no longer collected going forward. No CHECK
+--     constraint or other DB object referenced these type keys, so this
+--     required no schema change either.
+--   - pages/driver/Verification.jsx: added copy telling the driver up
+--     front that at most 4 uploads are needed and only the listed
+--     documents should be provided.
+--
+-- Nothing here touches Supabase tables, RLS policies, storage buckets,
+-- triggers, or any RPC function — every fix is a frontend/query-shape
+-- change reusing policies and columns that already existed.
+-- ============================================================================

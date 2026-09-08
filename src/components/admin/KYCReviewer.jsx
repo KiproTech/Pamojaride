@@ -1,14 +1,10 @@
-import { useEffect, useState } from 'react';
-import { supabase } from '../../lib/supabase';
-import { getSignedDocumentUrl, DOCUMENT_TYPES } from '../../lib/verificationDocuments';
+import { useState } from 'react';
+import DriverDocumentsGallery from './DriverDocumentsGallery';
 
 function formatDate(dateStr) {
   if (!dateStr) return '—';
   return new Date(dateStr).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' });
 }
-
-const DOC_LABELS = Object.fromEntries(DOCUMENT_TYPES.map(d => [d.key, d.label]));
-const IMAGE_DOC_TYPES = new Set(DOCUMENT_TYPES.filter(d => d.imageOnly).map(d => d.key));
 
 const FACE_STATUS_BADGE = {
   not_started: { label: 'Not started', cls: 'badge-gray' },
@@ -26,38 +22,8 @@ export default function KYCReviewer({ driver, onApprove, onReject }) {
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
-  const [openingDoc, setOpeningDoc] = useState(null);
-  const [thumbs, setThumbs] = useState({}); // { [path]: signedUrl } — vehicle_photo / face_verification only
 
   const documents = Array.isArray(driver.kyc_documents) ? driver.kyc_documents : [];
-  const imageDocuments = documents.filter(d => IMAGE_DOC_TYPES.has(d.type));
-  const paperDocuments = documents.filter(d => !IMAGE_DOC_TYPES.has(d.type));
-
-  // Thumbnails for the vehicle photo / face capture specifically — these
-  // are what an admin actually needs to eyeball at a glance (compare the
-  // face capture to the ID, check the vehicle looks legitimate); the
-  // paper documents (ID/licence/logbook/insurance) stay as open-in-new-tab
-  // buttons like before, since a thumbnail adds little for a scanned PDF.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      for (const doc of imageDocuments) {
-        if (thumbs[doc.path]) continue;
-        const { url } = await getSignedDocumentUrl(supabase, doc.path);
-        if (!cancelled && url) setThumbs(prev => ({ ...prev, [doc.path]: url }));
-      }
-    })();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [driver.id]);
-
-  async function openDocument(doc) {
-    setOpeningDoc(doc.path);
-    const { url, error } = await getSignedDocumentUrl(supabase, doc.path);
-    setOpeningDoc(null);
-    if (error || !url) { alert('Could not open this document — it may have been removed.'); return; }
-    window.open(url, '_blank', 'noopener,noreferrer');
-  }
 
   const faceStatus = FACE_STATUS_BADGE[driver.face_verification_status] || FACE_STATUS_BADGE.not_started;
   const vehicleTypeLabel = driver.vehicle_type === 'other' ? (driver.vehicle_type_other || 'Other') : 'Private Car';
@@ -126,59 +92,11 @@ export default function KYCReviewer({ driver, onApprove, onReject }) {
 
       <div className="divider" />
 
-      {imageDocuments.length > 0 && (
-        <div style={{ margin: '16px 0' }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
-            Vehicle Photo &amp; Face Verification
-          </div>
-          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-            {imageDocuments.map(doc => (
-              <button
-                key={doc.path}
-                type="button"
-                onClick={() => openDocument(doc)}
-                title={`Open ${DOC_LABELS[doc.type] || doc.type} full size`}
-                style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', textAlign: 'center' }}
-              >
-                <div style={{
-                  width: 96, height: 96, borderRadius: doc.type === 'face_verification' ? '50%' : 10,
-                  overflow: 'hidden', background: 'var(--bg-alt)', border: '1.5px solid var(--border)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  {thumbs[doc.path] ? (
-                    <img src={thumbs[doc.path]} alt={DOC_LABELS[doc.type]} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  ) : (
-                    <span className="spinner" />
-                  )}
-                </div>
-                <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 4 }}>{DOC_LABELS[doc.type] || doc.type}</div>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
       <div style={{ margin: '16px 0' }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
           Submitted Documents
         </div>
-        {paperDocuments.length === 0 ? (
-          <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>No documents uploaded with this submission.</p>
-        ) : (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {paperDocuments.map(doc => (
-              <button
-                key={doc.path}
-                type="button"
-                className="btn btn-outline btn-sm"
-                disabled={openingDoc === doc.path}
-                onClick={() => openDocument(doc)}
-              >
-                {openingDoc === doc.path ? <span className="spinner" /> : `📄 ${DOC_LABELS[doc.type] || doc.type}`}
-              </button>
-            ))}
-          </div>
-        )}
+        <DriverDocumentsGallery documents={documents} />
       </div>
 
       {rejecting ? (

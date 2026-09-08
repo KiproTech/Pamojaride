@@ -3,6 +3,7 @@ import { useAuth } from './context/AuthContext';
 
 // Public
 import Landing from './pages/Landing';
+import TermsAndPrivacy from './pages/legal/TermsAndPrivacy';
 
 // Auth
 import PassengerLogin    from './pages/auth/PassengerLogin';
@@ -166,6 +167,11 @@ export default function App() {
     <Routes>
       {/* Public */}
       <Route path="/" element={<PublicRoute><Landing /></PublicRoute>} />
+      {/* Not wrapped in PublicRoute/ProtectedRoute: must be reachable by
+          anyone regardless of login state or portal, same reasoning as
+          /passenger/reset-password above — reached from registration,
+          the landing footer, the dashboard sidebar, and Profile pages. */}
+      <Route path="/legal/terms" element={<TermsAndPrivacy />} />
 
       {/* Auth — passenger */}
       <Route path="/passenger/login"    element={<PublicRoute preferredRole="passenger"><PassengerLogin /></PublicRoute>} />

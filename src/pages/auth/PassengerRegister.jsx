@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { validateRegistrationForm } from '../../lib/validation';
+import { TERMS_VERSION } from '../../lib/legal/termsContent';
+import { acceptTermsForUser } from '../../lib/legal/consent';
+import TermsPrivacyModal from '../../components/shared/TermsPrivacyModal';
 
 function PasswordInput({ value, onChange, inputStyle }) {
   const [visible, setVisible] = useState(false);
@@ -43,6 +46,8 @@ export default function PassengerRegister() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [needsEmailConfirmation, setNeedsEmailConfirmation] = useState(false);
+  const [agreed, setAgreed] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
   const navigate = useNavigate();
 
   function set(field) { return e => setForm(f => ({ ...f, [field]: e.target.value })); }
@@ -59,6 +64,11 @@ export default function PassengerRegister() {
     // clearer message for the same failures plus the new two-name check.
     const validation = validateRegistrationForm(form);
     if (!validation.valid) { setError(validation.firstError); return; }
+    // The checkbox is disabled from submitting via the button's `disabled`
+    // attribute below, but that's a UX guard, not a security boundary — a
+    // form can still be submitted programmatically. Re-check here so it's
+    // genuinely impossible to reach signUp() without agreement recorded.
+    if (!agreed) { setError('Please agree to the PamojaRide Terms & Conditions and Privacy Policy to continue.'); return; }
     // Send the trimmed/normalized values (collapsed whitespace, lowercased
     // email) on to Supabase rather than the raw form state.
     const { name, email, phone, password } = validation.values;
@@ -74,6 +84,12 @@ export default function PassengerRegister() {
             phone,
             role: 'passenger',
             account_source: 'email_password',
+            // Picked up by trg_apply_registration_consent (see
+            // src/database/terms_privacy_consent.sql) the moment the new
+            // profiles row is created — the acceptance timestamp itself is
+            // always set server-side from there, never from this client.
+            terms_accepted: true,
+            terms_version: TERMS_VERSION,
           },
         },
       });
@@ -105,6 +121,13 @@ export default function PassengerRegister() {
         if (existingPassenger) {
           throw new Error('This account already has a passenger profile. Please use the passenger login instead.');
         }
+
+        // No new profiles row is created on this path (the identity
+        // already exists), so trg_apply_registration_consent never fires
+        // for it. Record the same agreement they just checked on this
+        // form directly — same own-row update every other profile edit in
+        // this app already uses.
+        await acceptTermsForUser(supabase, existingUser.id);
 
         const { error: insertError } = await supabase
           .from('passenger_profiles')
@@ -211,7 +234,24 @@ export default function PassengerRegister() {
             <label style={styles.label}>Confirm Password</label>
             <PasswordInput value={form.confirm} onChange={set('confirm')} inputStyle={styles.input} />
           </div>
-          <button type="submit" style={loading ? { ...styles.btn, opacity: 0.7 } : styles.btn} disabled={loading}>
+
+          <label style={styles.agreeRow}>
+            <input
+              type="checkbox"
+              checked={agreed}
+              onChange={e => setAgreed(e.target.checked)}
+              required
+              style={styles.checkbox}
+            />
+            <span>
+              I agree to the PamojaRide{' '}
+              <button type="button" onClick={() => setShowTerms(true)} style={styles.inlineLinkBtn}>
+                Terms & Conditions and Privacy Policy
+              </button>.
+            </span>
+          </label>
+
+          <button type="submit" style={loading || !agreed ? { ...styles.btn, opacity: 0.7 } : styles.btn} disabled={loading || !agreed}>
             {loading ? 'Creating account…' : 'Create Account →'}
           </button>
         </form>
@@ -219,6 +259,8 @@ export default function PassengerRegister() {
         <p style={styles.footer}>Already have an account?{' '}<Link to="/passenger/login" style={styles.link}>Sign in</Link></p>
         <p style={styles.footer}><Link to="/driver/register" style={styles.linkMuted}>Register as a driver instead</Link></p>
       </div>
+
+      {showTerms && <TermsPrivacyModal onClose={() => setShowTerms(false)} />}
     </div>
   );
 }
@@ -245,6 +287,9 @@ const styles = {
   label: { fontSize: 13, fontWeight: 600, color: '#374151' },
   hint: { fontSize: 12, color: '#94A3B8' },
   input: { padding: '12px 14px', borderRadius: 10, border: '1.5px solid #E2E8F0', fontSize: 15, outline: 'none', background: '#F8FAFC', fontFamily: "'DM Sans', sans-serif", width: '100%', boxSizing: 'border-box' },
+  agreeRow: { display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 13, color: '#374151', lineHeight: 1.6, cursor: 'pointer' },
+  checkbox: { marginTop: 3, width: 16, height: 16, flexShrink: 0, accentColor: '#0E7490', cursor: 'pointer' },
+  inlineLinkBtn: { background: 'none', border: 'none', padding: 0, margin: 0, color: '#0E7490', fontWeight: 700, fontSize: 13, textDecoration: 'underline', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" },
   btn: { marginTop: 4, padding: 14, borderRadius: 10, background: 'linear-gradient(135deg, #0E7490, #155E75)', color: 'white', fontWeight: 700, fontSize: 15, border: 'none', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", boxShadow: '0 4px 16px rgba(14,116,144,0.3)', width: '100%' },
   footer: { marginTop: 14, fontSize: 13, color: '#64748B', textAlign: 'center' },
   link: { color: '#0E7490', fontWeight: 600, textDecoration: 'none' },

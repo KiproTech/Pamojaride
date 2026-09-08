@@ -10,6 +10,7 @@ import {
   ALLOWED_MIME_TYPES,
   ALLOWED_IMAGE_MIME_TYPES,
   MAX_FILE_SIZE_BYTES,
+  MAX_VERIFICATION_UPLOADS,
   validateFile,
   uploadVerificationDocument,
 } from '../../lib/verificationDocuments';
@@ -41,6 +42,31 @@ function formatBytes(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// Turns a failed save's `error` (as returned by supabase-js) into an
+// honest, specific message — NEVER collapse every failure into "check
+// your connection".
+//
+// supabase-js always resolves (never rejects) a query with { data, error
+// }, and the shape of `error` tells you which kind of failure this was:
+//   - A request that actually reached Postgres/PostgREST (a validation
+//     rule, a trigger's RAISE EXCEPTION, an RLS check, a malformed
+//     column/value, etc.) always comes back with a non-empty `code`
+//     (either a Postgres SQLSTATE like '23514'/'42501'/'P0001', or a
+//     PostgREST code like 'PGRST116'). Its `message` is the real,
+//     specific reason the save was rejected — surface that directly.
+//   - A request that never reached the server at all (offline, DNS
+//     failure, CORS, an aborted/timed-out fetch) comes back from
+//     supabase-js with `code` empty/undefined, because there was no
+//     database response to attach a SQLSTATE to. ONLY this case should
+//     ever be described as a connection problem.
+function describeSaveError(error) {
+  if (!error) return '';
+  if (error.code) {
+    return error.message || "That couldn't be saved — please check the field and try again.";
+  }
+  return "Couldn't reach the server — check your connection and try again.";
+}
+
 // A value that came back from the DB might be a curated option ("Toyota")
 // or a previously-typed custom value ("Skoda") — decide which state the
 // SelectOrOther field should start in.
@@ -66,7 +92,11 @@ export default function Verification() {
     <DashboardLayout title="Driver Verification">
       <div className="page-header">
         <h1>Driver Verification</h1>
-        <p>A few quick steps — mostly picking from lists, not typing. Review usually takes under 24 hours.</p>
+        <p>
+          A few quick steps — mostly picking from lists, not typing. You'll be asked for a maximum of{' '}
+          {MAX_VERIFICATION_UPLOADS} uploads in total — only the documents and photos listed on each step are needed,
+          nothing else. Review usually takes under 24 hours.
+        </p>
       </div>
       <VerificationWizard
         user={user}
@@ -152,6 +182,7 @@ function VerificationWizard({ user, profile, driverProfile, verificationStatus, 
     : Math.min(Math.max(driverProfile?.verification_step ?? 0, 0), STEPS.length - 1);
   const [step, setStep] = useState(initialStep);
   const [saveStatus, setSaveStatus] = useState('idle'); // idle | saving | saved | error
+  const [saveErrorMessage, setSaveErrorMessage] = useState(''); // human-readable reason for the last save failure (never a generic fallback unless it truly was a connection problem)
   const [form, setForm] = useState({
     nationalId: profile?.national_id || '',
     licenceNumber: driverProfile?.licence_number || '',
@@ -213,7 +244,8 @@ function VerificationWizard({ user, profile, driverProfile, verificationStatus, 
     setUploadingDoc(docType);
     setFileErrors(prev => ({ ...prev, [docType]: null }));
     try {
-      const { data, error } = await uploadVerificationDocument(supabase, user.id, docType, file);
+      const previousPath = existingDocMap[docType]?.path;
+      const { data, error } = await uploadVerificationDocument(supabase, user.id, docType, file, previousPath);
       if (error) throw new Error(error.message || 'Upload failed.');
       const { error: saveErr } = await saveVerificationProgress({ newDocuments: [data] });
       if (saveErr) throw new Error(saveErr.message || 'Unable to save your progress. Please check your connection and try again.');
@@ -377,20 +409,26 @@ function VerificationWizard({ user, profile, driverProfile, verificationStatus, 
 
     setSaveStatus('saving');
     setSubmitError('');
-    try {
-      const { driverFields, profileFields } = buildStepPayload(step);
-      const { error } = await saveVerificationProgress({ driverFields, profileFields, verificationStep: step + 1 });
-      if (error) throw new Error(error.message || 'Unable to save your progress. Please check your connection and try again.');
+    setSaveErrorMessage('');
+    const { driverFields, profileFields } = buildStepPayload(step);
+    const { error } = await saveVerificationProgress({ driverFields, profileFields, verificationStep: step + 1 });
 
-      lastAutosavedRef.current[step] = JSON.stringify(buildStepPayload(step));
-      setSaveStatus('saved');
-      setStep(s => Math.min(s + 1, STEPS.length - 1));
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      setTimeout(() => setSaveStatus(s => (s === 'saved' ? 'idle' : s)), 2500);
-    } catch (err) {
+    if (error) {
+      // Leave lastAutosavedRef untouched on failure — see the autosave
+      // effect below for why marking a FAILED save as "already attempted"
+      // would silently prevent it from ever being retried.
+      const message = describeSaveError(error);
       setSaveStatus('error');
-      setSubmitError(err.message || 'Unable to save your progress. Please check your connection and try again.');
+      setSaveErrorMessage(message);
+      setSubmitError(message);
+      return;
     }
+
+    lastAutosavedRef.current[step] = JSON.stringify(buildStepPayload(step));
+    setSaveStatus('saved');
+    setStep(s => Math.min(s + 1, STEPS.length - 1));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setTimeout(() => setSaveStatus(s => (s === 'saved' ? 'idle' : s)), 2500);
   }
   function goBack() {
     setStep(s => Math.max(s - 1, 0));
@@ -418,11 +456,24 @@ function VerificationWizard({ user, profile, driverProfile, verificationStatus, 
       const { driverFields, profileFields } = buildStepPayload(step);
       setSaveStatus('saving');
       const { error } = await saveVerificationProgress({ driverFields, profileFields });
-      lastAutosavedRef.current[step] = snapshot;
       if (error) {
+        // Deliberately do NOT update lastAutosavedRef here. If we did, a
+        // failed save would be marked as "already attempted for this
+        // exact form state" — so if the driver navigated away and back
+        // (or the field just happened to be re-evaluated) without
+        // changing the value again, this effect would see snapshot ===
+        // lastAutosavedRef.current[step] and skip re-saving forever,
+        // silently leaving the field unsaved. Leaving the ref stale means
+        // the *next* genuine change to this step's fields (or a manual
+        // "Next") will naturally attempt the save again — this is
+        // deliberate retry-on-new-input, not a blind repeat of the same
+        // rejected request (which requirement #2 rules out).
         setSaveStatus('error');
+        setSaveErrorMessage(describeSaveError(error));
       } else {
+        lastAutosavedRef.current[step] = snapshot;
         setSaveStatus('saved');
+        setSaveErrorMessage('');
         setTimeout(() => setSaveStatus(s => (s === 'saved' ? 'idle' : s)), 2500);
       }
     }, 800);
@@ -608,7 +659,10 @@ function VerificationWizard({ user, profile, driverProfile, verificationStatus, 
       {step === 2 && (
         <section className="card card-pad">
           <h3 style={{ fontSize: 16, marginBottom: 4 }}>Documents</h3>
-          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>Clear photos or scans (JPG, PNG, or PDF — max {formatBytes(MAX_FILE_SIZE_BYTES)} each).</p>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
+            Only the documents listed below are required — please don't upload anything else.
+            Clear photos or scans (JPG, PNG, or PDF — max {formatBytes(MAX_FILE_SIZE_BYTES)} each).
+          </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {paperDocTypes.map(doc => (
               <DocumentUploadRow
@@ -724,7 +778,9 @@ function VerificationWizard({ user, profile, driverProfile, verificationStatus, 
           <span style={{ fontSize: 12.5, color: 'var(--green, #1a8a4a)' }}>Saved ✓</span>
         )}
         {saveStatus === 'error' && (
-          <span style={{ fontSize: 12.5, color: 'var(--danger)' }}>Not saved — check your connection</span>
+          <span style={{ fontSize: 12.5, color: 'var(--danger)' }}>
+            {saveErrorMessage || "Couldn't reach the server — check your connection and try again."}
+          </span>
         )}
       </div>
     </div>

@@ -73,6 +73,9 @@ export default function Sidebar({ open, onClose }) {
         </nav>
 
         <div className="sidebar-footer">
+          <NavLink to="/legal/terms" style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', display: 'block', marginBottom: 4, textDecoration: 'underline' }}>
+            Terms & Privacy Policy
+          </NavLink>
           <p style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center' }}>
             PamojaRide &copy; {new Date().getFullYear()}
           </p>

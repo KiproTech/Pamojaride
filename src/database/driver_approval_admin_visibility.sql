@@ -1,0 +1,84 @@
+-- ============================================================================
+-- PamojaRide — Driver Approval Information: "Approved By" shows "—" even
+-- when a driver has already been approved by an administrator.
+-- ============================================================================
+-- Run this once in the Supabase SQL Editor. Idempotent (DROP POLICY IF
+-- EXISTS + CREATE) — safe to re-run.
+--
+-- ── WHAT WAS INSPECTED ──────────────────────────────────────────────────────
+--
+--   - Which admin performs the approval / how they're identified:
+--     src/pages/admin/DriverReview.jsx's handleApprove() already reads
+--     `(await supabase.auth.getUser()).data.user?.id` as `adminId` and
+--     writes it straight onto the row being approved.
+--
+--   - Whether the approval action already stores the admin ID: YES.
+--     handleApprove() already does
+--       .update({ verification_status: 'verified',
+--                  kyc_approved_at: new Date().toISOString(),
+--                  kyc_approved_by: adminId, ... })
+--     and `driver_profiles.kyc_approved_by uuid` (db.sql) — a foreign key
+--     to profiles(id) — already exists and is already being populated on
+--     every approval. No new column or migration is needed for storage;
+--     the authoritative admin user ID is already saved correctly.
+--
+--   - Whether there's an appropriate column/audit record to reuse: yes,
+--     two: `driver_profiles.kyc_approved_by` (authoritative, used here)
+--     and the `audit_logs` row DriverReview.jsx's logAudit() already
+--     writes on every 'kyc_approved' action (admin_id, user_id, action,
+--     old_value, new_value) — useful for a history view later, but
+--     kyc_approved_by is the simpler, already-indexed source for "who is
+--     the CURRENT approver of THIS driver" and is what
+--     components/admin/DriverDetailsModal.jsx already queries.
+--
+-- ── ROOT CAUSE ──────────────────────────────────────────────────────────────
+--
+-- DriverDetailsModal.jsx already runs exactly the right query:
+--     .select(`*,
+--       profiles:profile_id (full_name, email, ...),
+--       approved_by_admin:kyc_approved_by (full_name)`)
+-- and already renders `driver.approved_by_admin?.full_name`. The data is
+-- there and the column is populated. What's missing is READ ACCESS: this
+-- project's `public.profiles` RLS only has an own-row SELECT policy
+-- (confirmed live, but — like a few other policies in this project's
+-- history — never captured in a tracked migration). `driver_profiles`
+-- and `passenger_profiles` both already have an explicit
+-- "admin can read all ... profiles" policy (critical_security_fixes.sql)
+-- so an admin can freely read any driver's row, but nothing equivalent
+-- exists for `profiles` itself. So the embedded
+-- `approved_by_admin:kyc_approved_by(full_name)` join silently resolves
+-- to NULL for every admin EXCEPT the one whose own id happens to equal
+-- kyc_approved_by (i.e. only when the admin viewing the page is the same
+-- admin who approved that specific driver) — which is exactly the
+-- reported symptom: kyc_approved_at is populated (that column read
+-- doesn't need a join), but "Approved By" shows "—" regardless.
+--
+-- ── THE FIX ──────────────────────────────────────────────────────────────
+--
+-- Add the missing admin-wide SELECT policy on public.profiles, scoped
+-- exactly like the existing driver_profiles/passenger_profiles ones:
+-- only rows readable when the QUERYING user is an admin. This does not
+-- change what a driver or passenger can read of ANYONE else's profile —
+-- the existing own-row policy is untouched and this new policy's USING
+-- clause only ever evaluates true for admins, so a passenger or driver
+-- gains no new visibility into other users' (or admins') profiles.
+-- ============================================================================
+
+DROP POLICY IF EXISTS "admin can read all profiles" ON public.profiles;
+CREATE POLICY "admin can read all profiles"
+ON public.profiles FOR SELECT
+TO authenticated
+USING (public.is_admin(auth.uid()));
+
+-- ============================================================================
+-- Explicitly NOT done here, and why:
+--
+--   - No new column: kyc_approved_by already exists, is a real FK to
+--     profiles(id), and is already written correctly on every approval.
+--   - No change to driver_profiles/passenger_profiles policies: their
+--     admin-read-all policies already exist and already work.
+--   - No change to WHO can approve a driver, or to the approval write
+--     path itself (DriverReview.jsx / protect_driver_profile_privileged_
+--     columns()) — this is purely a read-visibility fix so the already-
+--     correct data can actually be displayed.
+-- ============================================================================

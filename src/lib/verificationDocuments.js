@@ -13,16 +13,29 @@
 // of, so a driver can only ever write/read inside their own folder.
 // ============================================================================
 
+// Capped at 4 — the maximum number of uploads a driver is ever asked for,
+// keeping only what's genuinely necessary to verify who the driver is and
+// what vehicle they'll be driving:
+//   - National ID + Driving Licence: confirm identity and legal eligibility
+//     to drive.
+//   - Vehicle Photo: visual confirmation of the actual vehicle in use.
+//   - Face Verification Photo: matches the driver's live face against their
+//     ID, the core anti-fraud check.
+// Vehicle Logbook and Insurance Certificate were dropped from this list —
+// they're compliance/ownership paperwork rather than identity or vehicle
+// verification, and any driver who previously uploaded one still has it on
+// file (kyc_documents is additive/never truncated), it's just no longer
+// collected or required going forward.
 export const DOCUMENT_TYPES = [
   { key: 'national_id', label: 'National ID', required: true },
   { key: 'driving_licence', label: 'Driving Licence', required: true },
-  { key: 'logbook', label: 'Vehicle Logbook', required: true },
-  { key: 'insurance', label: 'Insurance Certificate', required: false },
   // Image-only (no PDF) — the driver is declaring the actual vehicle/face,
   // not scanning a paper document, so a photo format is required.
   { key: 'vehicle_photo', label: 'Vehicle Photo', required: true, imageOnly: true },
   { key: 'face_verification', label: 'Face Verification Photo', required: true, imageOnly: true },
 ];
+
+export const MAX_VERIFICATION_UPLOADS = DOCUMENT_TYPES.length; // 4
 
 export const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
 export const ALLOWED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/jpg', 'image/png'];
@@ -56,7 +69,19 @@ function extensionFor(file) {
 // docType='face_verification' and a File built from a captured canvas
 // frame) — one upload/storage/RLS path for every kind of driver document,
 // photo included.
-export async function uploadVerificationDocument(client, driverId, docType, file) {
+//
+// `previousPath`, if given (the path of whatever this upload is replacing,
+// e.g. from the existing kyc_documents entry for this doc type), is best-
+// effort removed from Storage AFTER the new file is safely uploaded. This
+// keeps a driver's folder capped at (at most) one object per document type
+// instead of accumulating an orphaned copy on every "Replace" — the same
+// 4-document ceiling the UI and database enforce for kyc_documents should
+// hold for the actual files sitting in Storage too. Failing to delete the
+// old file is logged but never fails the upload itself — the new document
+// is already saved and correct; a leftover old object is untidy, not a
+// correctness or security problem (it's still private, still only
+// reachable by this driver or an admin).
+export async function uploadVerificationDocument(client, driverId, docType, file, previousPath) {
   const docConfig = DOCUMENT_TYPES.find(d => d.key === docType);
   const validationError = validateFile(file, { imageOnly: !!docConfig?.imageOnly });
   if (validationError) return { data: null, error: { message: validationError } };
@@ -69,6 +94,11 @@ export async function uploadVerificationDocument(client, driverId, docType, file
     upsert: false,
   });
   if (uploadError) return { data: null, error: uploadError };
+
+  if (previousPath && previousPath !== path) {
+    const { error: removeError } = await removeVerificationDocument(client, previousPath);
+    if (removeError) console.error('Could not remove superseded verification document:', previousPath, removeError);
+  }
 
   return {
     data: {

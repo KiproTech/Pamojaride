@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import DashboardLayout from '../../components/shared/DashboardLayout';
 import ChangePasswordCard from '../../components/shared/ChangePasswordCard';
 import PersonalInfoCard from '../../components/shared/PersonalInfoCard';
+import LegalConsentCard from '../../components/shared/LegalConsentCard';
 
 export default function Profile() {
   const { profile, driverProfile, verificationStatus, needsVerification, verificationPending, isDriverVerified, updateProfile } = useAuth();
@@ -17,6 +18,7 @@ export default function Profile() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 640 }}>
         <PersonalInfoCard profile={profile} updateProfile={updateProfile} />
         <ChangePasswordCard />
+        <LegalConsentCard profile={profile} updateProfile={updateProfile} />
 
         {isDriverVerified && <VerifiedVehicleCard driverProfile={driverProfile} />}
         {needsVerification && <VerificationStatusCard status="needed" verificationStatus={verificationStatus} driverProfile={driverProfile} />}

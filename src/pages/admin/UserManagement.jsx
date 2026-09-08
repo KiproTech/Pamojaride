@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import DashboardLayout from '../../components/shared/DashboardLayout';
+import DriverDetailsModal from '../../components/admin/DriverDetailsModal';
 
 const ROLE_TABS = [
   { value: 'all', label: 'All' },
@@ -47,6 +48,7 @@ export default function UserManagement() {
   const [actionTarget, setActionTarget] = useState(null); // { user, action: 'suspend' | 'ban' | 'reactivate' }
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
+  const [detailsDriverId, setDetailsDriverId] = useState(null); // profile_id of driver shown in DriverDetailsModal
 
   async function loadUsers() {
     setLoading(true);
@@ -243,6 +245,11 @@ export default function UserManagement() {
                       )}
                     </td>
                     <td style={{ padding: '14px 20px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      {u.role === 'driver' && (
+                        <button className="btn btn-sm btn-outline" style={{ marginRight: 8 }} onClick={() => setDetailsDriverId(u.id)}>
+                          View Driver Details
+                        </button>
+                      )}
                       {u.account_status === 'active' && (
                         <>
                           <button className="btn btn-sm btn-outline" style={{ marginRight: 8 }} onClick={() => openAction(u, 'suspend')}>Suspend</button>
@@ -307,6 +314,10 @@ export default function UserManagement() {
             </div>
           </div>
         </div>
+      )}
+
+      {detailsDriverId && (
+        <DriverDetailsModal driverId={detailsDriverId} onClose={() => setDetailsDriverId(null)} />
       )}
     </DashboardLayout>
   );
