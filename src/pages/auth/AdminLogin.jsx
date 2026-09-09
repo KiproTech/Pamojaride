@@ -12,6 +12,7 @@ export default function AdminLogin() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [deactivatedPopup, setDeactivatedPopup] = useState(false);
   const navigate = useNavigate();
   const { kickedMessage, clearKickedMessage } = useAuth();
 
@@ -34,8 +35,26 @@ export default function AdminLogin() {
       if (profileError) throw new Error(profileError.message);
 
       if (!profileRow.is_admin) {
+        // Was this identity deactivated as an admin specifically (still
+        // has an admin_profiles row, just marked inactive), or was it
+        // never an admin at all / fully removed? The RLS policy on
+        // admin_profiles lets a user see their OWN row even after
+        // deactivation flips is_admin false, specifically so this check
+        // can tell the two apart and show the right message.
+        const { data: adminRow } = await supabase
+          .from('admin_profiles')
+          .select('account_status')
+          .eq('profile_id', data.user.id)
+          .maybeSingle();
+
         await supabase.auth.signOut();
-        throw new Error('This account does not have admin access.');
+
+        if (adminRow?.account_status === 'deactivated') {
+          setDeactivatedPopup(true);
+        } else {
+          throw new Error('This account does not have admin access.');
+        }
+        return;
       }
 
       navigate('/admin/dashboard');
@@ -75,6 +94,26 @@ export default function AdminLogin() {
           </button>
         </form>
       </div>
+
+      {/* Popup: shown when this identity's admin access has been
+          deactivated by a Super Admin. Distinct from the plain inline
+          error below it, which covers "never was an admin" / fully
+          removed instead. */}
+      {deactivatedPopup && (
+        <div style={styles.popupOverlay}>
+          <div style={styles.popupCard}>
+            <div style={{ fontSize: 32, marginBottom: 10 }}>🚫</div>
+            <h3 style={{ fontFamily: "'Sora', sans-serif", fontSize: 18, fontWeight: 800, color: '#0F172A', margin: '0 0 8px' }}>
+              Admin access deactivated
+            </h3>
+            <p style={{ fontSize: 13.5, color: '#64748B', lineHeight: 1.5, margin: '0 0 20px' }}>
+              Your administrator access has been deactivated by a Super Admin. If you believe this is a mistake,
+              contact your Super Admin.
+            </p>
+            <button style={{ ...styles.btn, width: '100%' }} onClick={() => setDeactivatedPopup(false)}>OK</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -91,4 +130,12 @@ const styles = {
   label: { fontSize: 13, fontWeight: 600, color: '#374151' },
   input: { padding: '12px 14px', borderRadius: 10, border: '1.5px solid #E2E8F0', fontSize: 15, outline: 'none', background: '#F8FAFC', width: '100%', boxSizing: 'border-box' },
   btn: { marginTop: 6, padding: 14, borderRadius: 10, background: '#0F172A', color: 'white', fontWeight: 700, fontSize: 15, border: 'none', cursor: 'pointer' },
+  popupOverlay: {
+    position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20,
+  },
+  popupCard: {
+    width: 360, textAlign: 'center', background: 'white', borderRadius: 16, padding: '32px 28px',
+    boxShadow: '0 20px 60px rgba(0,0,0,0.4)', fontFamily: "'DM Sans', sans-serif",
+  },
 };

@@ -161,6 +161,7 @@ export default function BookingDetailsView({ portal }) {
   const counterpartLabel = portal === 'passenger' ? 'Driver Information' : 'Passenger Information';
   const counterpartName = portal === 'passenger' ? booking.driver_name : booking.passenger_name;
   const counterpartPhone = portal === 'passenger' ? booking.driver_phone : booking.passenger_phone;
+  const counterpartPicture = portal === 'passenger' ? booking.driver_profile_picture : booking.passenger_picture;
   const pickup = booking.booking_pickup_point || booking.trip_pickup_point;
   const dropoff = booking.booking_dropoff_point || booking.trip_dropoff_point;
   const receiptEligible = RECEIPT_ELIGIBLE_STATUSES.includes(booking.booking_status);
@@ -261,14 +262,25 @@ export default function BookingDetailsView({ portal }) {
       <div className="card card-pad" style={{ marginBottom: 16 }}>
         <h3 style={{ fontSize: 15, marginBottom: 12 }}>{counterpartLabel}</h3>
         {counterpartName ? (
-          <div className="grid-2" style={{ gap: 10 }}>
-            <div>
-              <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: 0 }}>Name</p>
-              <p style={{ fontSize: 13.5, margin: '2px 0 0' }}>{counterpartName}</p>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              {counterpartPicture ? (
+                <img src={counterpartPicture} alt="" style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+              ) : (
+                <span className="topbar-avatar" style={{ width: 44, height: 44, fontSize: 15, flexShrink: 0 }}>
+                  {counterpartName.trim().split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase()}
+                </span>
+              )}
             </div>
-            <div>
-              <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: 0 }}>Phone</p>
-              <p style={{ fontSize: 13.5, margin: '2px 0 0' }}>{counterpartPhone || '—'}</p>
+            <div className="grid-2" style={{ gap: 10 }}>
+              <div>
+                <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: 0 }}>Name</p>
+                <p style={{ fontSize: 13.5, margin: '2px 0 0' }}>{counterpartName}</p>
+              </div>
+              <div>
+                <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: 0 }}>Phone</p>
+                <p style={{ fontSize: 13.5, margin: '2px 0 0' }}>{counterpartPhone || '—'}</p>
+              </div>
             </div>
           </div>
         ) : (

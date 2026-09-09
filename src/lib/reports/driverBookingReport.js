@@ -14,6 +14,9 @@ import {
   formatGeneratedAt,
   formatPageLabel,
   drawDocumentFooter,
+  embedBrandLogo,
+  drawBrandLogo,
+  logoTextOffset,
 } from './documentStyle';
 
 // ============================================================================
@@ -142,6 +145,7 @@ export async function buildDriverBookingReportPdf({ driverName, driverPhone, fil
   pdfDoc.setProducer('PamojaRide');
 
   const { regular, bold, italic } = await loadReportFonts(pdfDoc);
+  const logoImage = await embedBrandLogo(pdfDoc);
 
   const generatedAt = new Date();
   const reportId = `PR-RPT-${generatedAt.getFullYear()}${String(generatedAt.getMonth() + 1).padStart(2, '0')}${String(generatedAt.getDate()).padStart(2, '0')}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
@@ -157,22 +161,26 @@ export async function buildDriverBookingReportPdf({ driverName, driverPhone, fil
     page.drawRectangle({ x: 0, y: PAGE_HEIGHT - bandHeight, width: PAGE_WIDTH, height: bandHeight, color: COLOR_PRIMARY_DARK });
     page.drawRectangle({ x: 0, y: PAGE_HEIGHT - bandHeight, width: PAGE_WIDTH, height: 4, color: COLOR_ACCENT });
 
-    // Wordmark: "Pamoja" (white) + "Ride" (accent orange) — the same
-    // two-tone wordmark used across the app's own headers/login pages,
-    // there being no separate raster logo file in the project.
+    // Logo glyph (in a white box) + "Pamoja" (white) / "Ride" (accent
+    // orange) wordmark — same treatment as the app's own <Logo> component
+    // (pages/Landing.jsx, reused by Sidebar.jsx and every auth page).
+    // Falls back to the wordmark alone if the logo asset couldn't be loaded.
     const wmSize = isFirstPage ? 22 : 16;
     const wmY = PAGE_HEIGHT - (isFirstPage ? 42 : 32);
-    page.drawText('Pamoja', { x: MARGIN, y: wmY, size: wmSize, font: bold, color: COLOR_WHITE });
+    const boxSize = isFirstPage ? 34 : 24;
+    const textX = MARGIN + (logoImage ? logoTextOffset(boxSize, isFirstPage ? 10 : 8) : 0);
+    drawBrandLogo({ page, logoImage, x: MARGIN, centerY: wmY + (isFirstPage ? 8 : 6), boxSize });
+    page.drawText('Pamoja', { x: textX, y: wmY, size: wmSize, font: bold, color: COLOR_WHITE });
     const pamojaW = bold.widthOfTextAtSize('Pamoja', wmSize);
-    page.drawText('Ride', { x: MARGIN + pamojaW, y: wmY, size: wmSize, font: bold, color: COLOR_ACCENT });
+    page.drawText('Ride', { x: textX + pamojaW, y: wmY, size: wmSize, font: bold, color: COLOR_ACCENT });
 
     if (isFirstPage) {
       page.drawText('DRIVER BOOKING REPORT', {
-        x: MARGIN, y: wmY - 22, size: 12, font: bold, color: rgb(0.86, 0.94, 0.97),
+        x: textX, y: wmY - 22, size: 12, font: bold, color: rgb(0.86, 0.94, 0.97),
       });
     } else {
       page.drawText('Driver Booking Report (continued)', {
-        x: MARGIN, y: wmY - 16, size: 9, font: regular, color: rgb(0.86, 0.94, 0.97),
+        x: textX, y: wmY - 16, size: 9, font: regular, color: rgb(0.86, 0.94, 0.97),
       });
     }
 

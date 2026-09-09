@@ -14,6 +14,9 @@ import {
   formatGeneratedAt,
   formatPageLabel,
   drawDocumentFooter,
+  embedBrandLogo,
+  drawBrandLogo,
+  logoTextOffset,
 } from './documentStyle';
 
 // ============================================================================
@@ -153,6 +156,7 @@ export async function buildBookingReceiptPdf({ portal, booking, viewerName, supp
   pdfDoc.setProducer('PamojaRide');
 
   const { regular, bold, italic } = await loadReportFonts(pdfDoc);
+  const logoImage = await embedBrandLogo(pdfDoc);
 
   const generatedAt = new Date();
   const receiptNo = `PR-RCPT-${(booking.booking_reference || booking.booking_id || '').toString().replace(/[^a-zA-Z0-9]/g, '').slice(-10).toUpperCase()}`;
@@ -165,15 +169,18 @@ export async function buildBookingReceiptPdf({ portal, booking, viewerName, supp
   page.drawRectangle({ x: 0, y: PAGE_HEIGHT - bandHeight, width: PAGE_WIDTH, height: bandHeight, color: COLOR_PRIMARY_DARK });
   page.drawRectangle({ x: 0, y: PAGE_HEIGHT - bandHeight, width: PAGE_WIDTH, height: 4, color: COLOR_ACCENT });
 
-  // Wordmark: "Pamoja" (white) + "Ride" (accent orange) — same two-tone
-  // wordmark used everywhere else in the app; there is no separate raster
-  // logo file in the project (see driverBookingReport.js for precedent).
+  // Logo glyph (in a white box) + "Pamoja" (white) / "Ride" (accent orange)
+  // wordmark — same treatment as the app's own <Logo> component
+  // (pages/Landing.jsx, reused by Sidebar.jsx and every auth page). Falls
+  // back to the wordmark alone if the logo asset couldn't be loaded.
   const wmSize = 22;
   const wmY = PAGE_HEIGHT - 42;
-  page.drawText('Pamoja', { x: MARGIN, y: wmY, size: wmSize, font: bold, color: COLOR_WHITE });
+  const textX = MARGIN + (logoImage ? logoTextOffset() : 0);
+  drawBrandLogo({ page, logoImage, x: MARGIN, centerY: wmY + 8, boxSize: 34 });
+  page.drawText('Pamoja', { x: textX, y: wmY, size: wmSize, font: bold, color: COLOR_WHITE });
   const pamojaW = bold.widthOfTextAtSize('Pamoja', wmSize);
-  page.drawText('Ride', { x: MARGIN + pamojaW, y: wmY, size: wmSize, font: bold, color: COLOR_ACCENT });
-  page.drawText('BOOKING RECEIPT', { x: MARGIN, y: wmY - 22, size: 12, font: bold, color: rgb(0.86, 0.94, 0.97) });
+  page.drawText('Ride', { x: textX + pamojaW, y: wmY, size: wmSize, font: bold, color: COLOR_ACCENT });
+  page.drawText('BOOKING RECEIPT', { x: textX, y: wmY - 22, size: 12, font: bold, color: rgb(0.86, 0.94, 0.97) });
 
   const ridLabel = `Receipt ${receiptNo}`;
   const ridSize = 9;

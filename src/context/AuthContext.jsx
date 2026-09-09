@@ -84,6 +84,7 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null);
   const [driverProfile, setDriverProfile] = useState(null);
   const [passengerProfile, setPassengerProfile] = useState(null);
+  const [adminProfile, setAdminProfile] = useState(null); // admin_profiles row: { admin_role, account_status, ... }
   const [loading, setLoading] = useState(true);
   const [kickedMessage, setKickedMessage] = useState(null); // set when another device took over this session
 
@@ -113,9 +114,23 @@ export function AuthProvider({ children }) {
         if (passengerError) console.error('fetchProfile: passenger_profiles query failed:', passengerError);
         setPassengerProfile(passengerRow ?? null);
         setDriverProfile(null);
+        setAdminProfile(null);
+      } else if (activePortal === 'admin') {
+        // admin_profiles carries the role tier (super_admin / admin /
+        // verification_admin / support_admin / reports_admin) and the
+        // deactivated/active status. A row may legitimately be absent for
+        // an admin created before this feature existed and not yet
+        // backfilled -- isSuperAdmin/adminRole below just treat that as
+        // "no elevated role", never as an error.
+        const { data: adminRow, error: adminError } = await activeClient.from('admin_profiles').select('*').eq('profile_id', userId).maybeSingle();
+        if (adminError) console.error('fetchProfile: admin_profiles query failed:', adminError);
+        setAdminProfile(adminRow ?? null);
+        setDriverProfile(null);
+        setPassengerProfile(null);
       } else {
         setDriverProfile(null);
         setPassengerProfile(null);
+        setAdminProfile(null);
       }
     } catch (err) {
       // Never let a thrown error here leave the caller's loading state
@@ -126,6 +141,7 @@ export function AuthProvider({ children }) {
       setProfile(null);
       setDriverProfile(null);
       setPassengerProfile(null);
+      setAdminProfile(null);
     }
   }, []);
 
@@ -165,6 +181,7 @@ export function AuthProvider({ children }) {
     setProfile(null);
     setDriverProfile(null);
     setPassengerProfile(null);
+    setAdminProfile(null);
     if (message) setKickedMessage(message);
     navigate(portalRef.current === 'admin' ? '/admin/login' : `/${portalRef.current}/login`, { replace: true });
   }, [client, navigate]);
@@ -180,6 +197,7 @@ export function AuthProvider({ children }) {
       setProfile(null);
       setDriverProfile(null);
       setPassengerProfile(null);
+      setAdminProfile(null);
       setLoading(false);
       return;
     }
@@ -216,6 +234,7 @@ export function AuthProvider({ children }) {
           setProfile(null);
           setDriverProfile(null);
           setPassengerProfile(null);
+          setAdminProfile(null);
         }
       } catch (err) {
         console.error('Auth session load failed:', err);
@@ -506,6 +525,7 @@ export function AuthProvider({ children }) {
     setProfile(null);
     setDriverProfile(null);
     setPassengerProfile(null);
+    setAdminProfile(null);
   }
 
   // ── update shared identity fields ─────────────────────────────────────
@@ -682,6 +702,7 @@ export function AuthProvider({ children }) {
     profile,
     driverProfile,
     passengerProfile,
+    adminProfile,
     loading,
     portal,
     supabase: client,
@@ -701,6 +722,19 @@ export function AuthProvider({ children }) {
     isDriver: !!driverProfile,
     isPassenger: !!passengerProfile,
     isAdmin: !!profile?.is_admin,
+    // Admin role tier. Falls back to 'admin' (the general, least-privileged
+    // tier) if is_admin is true but no admin_profiles row exists yet (e.g.
+    // this migration hasn't been backfilled for this identity) -- never
+    // silently grants super_admin. Non-admins get null.
+    adminRole: profile?.is_admin ? (adminProfile?.admin_role || 'admin') : null,
+    isSuperAdmin: !!profile?.is_admin && adminProfile?.admin_role === 'super_admin',
+    // Convenience checker for gating a page/section to one or more roles.
+    // super_admin is always allowed, matching the DB-side admin_has_role().
+    hasAdminRole: (roles = []) => {
+      if (!profile?.is_admin) return false;
+      const role = adminProfile?.admin_role || 'admin';
+      return role === 'super_admin' || roles.includes(role);
+    },
     verificationStatus,
     isDriverVerified: verificationStatus === 'verified',
     needsVerification: ['pending', 'unverified', 'active', 'rejected'].includes(verificationStatus),

@@ -69,6 +69,182 @@ export function formatPageLabel(pageNum) {
 }
 
 // ============================================================================
+// Shared logo embedding — the PamojaRide logo asset is /Vite.svg (see
+// pages/Landing.jsx's <Logo> component: "Vite.svg is the only logo asset;
+// nothing new is created here", and database/vite_svg_logo_no_db_changes.sql).
+// pdf-lib cannot embed SVG directly, so this rasterizes it to PNG once (via
+// an offscreen <canvas>) and caches the bytes at module scope for the life
+// of the page, so generating several PDFs in one session (e.g. a driver
+// downloading multiple booking reports) only fetches/rasterizes once.
+// ============================================================================
+
+let cachedLogoBytesPromise = null;
+
+async function rasterizeLogoSvgToPngBytes(size = 256) {
+  const res = await fetch('/Vite.svg');
+  if (!res.ok) throw new Error(`Failed to fetch logo asset (/Vite.svg): ${res.status}`);
+  const svgText = await res.text();
+  const svgUrl = URL.createObjectURL(new Blob([svgText], { type: 'image/svg+xml' }));
+  try {
+    const img = new Image();
+    const loaded = new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = () => reject(new Error('Failed to rasterize logo asset (/Vite.svg)'));
+    });
+    img.src = svgUrl;
+    await loaded;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, size, size);
+    ctx.drawImage(img, 0, 0, size, size);
+    const base64 = canvas.toDataURL('image/png').split(',')[1];
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  } finally {
+    URL.revokeObjectURL(svgUrl);
+  }
+}
+
+// Fetches + rasterizes the logo once, caching the resolved bytes (or the
+// failure) at module scope. A fetch/rasterize failure (e.g. offline) is
+// swallowed here — every caller treats a null result as "skip the glyph,
+// keep the text wordmark", never as a reason to fail the whole document.
+function getLogoPngBytes() {
+  if (!cachedLogoBytesPromise) {
+    cachedLogoBytesPromise = rasterizeLogoSvgToPngBytes().catch((err) => {
+      console.error('PamojaRide logo embed failed, falling back to wordmark only:', err);
+      cachedLogoBytesPromise = null;
+      return null;
+    });
+  }
+  return cachedLogoBytesPromise;
+}
+
+/**
+ * Embeds the PamojaRide logo (/Vite.svg, rasterized) into `pdfDoc` and
+ * returns the embedded PDFImage, or null if the asset couldn't be loaded.
+ * Call once per document, right after `PDFDocument.create()`, and pass the
+ * result to `drawBrandLogo()` wherever the header is drawn (once per page
+ * for multi-page documents).
+ *
+ * @param {import('pdf-lib').PDFDocument} pdfDoc
+ * @returns {Promise<import('pdf-lib').PDFImage|null>}
+ */
+export async function embedBrandLogo(pdfDoc) {
+  const bytes = await getLogoPngBytes();
+  if (!bytes) return null;
+  try {
+    return await pdfDoc.embedPng(bytes);
+  } catch (err) {
+    console.error('PamojaRide logo embed failed, falling back to wordmark only:', err);
+    return null;
+  }
+}
+
+/**
+ * Draws the PamojaRide logo glyph inside a white box — the same "glyph in a
+ * white box beside the wordmark" treatment used by the app's own <Logo>
+ * component (pages/Landing.jsx, reused by Sidebar.jsx and every auth page).
+ * No-ops if `logoImage` is null (embedBrandLogo() couldn't load the asset),
+ * so a missing/broken logo file never breaks receipt/report generation —
+ * documents simply fall back to the text-only wordmark next to it.
+ *
+ * @param {Object} params
+ * @param {import('pdf-lib').PDFPage} params.page
+ * @param {import('pdf-lib').PDFImage|null} params.logoImage
+ * @param {number} params.x - left edge of the white box
+ * @param {number} params.centerY - vertical center of the box
+ * @param {number} [params.boxSize=34]
+ */
+export function drawBrandLogo({ page, logoImage, x, centerY, boxSize = 34 }) {
+  if (!logoImage) return;
+  const pad = boxSize * 0.16;
+  const glyphSize = boxSize - pad * 2;
+  page.drawRectangle({ x, y: centerY - boxSize / 2, width: boxSize, height: boxSize, color: COLOR_WHITE });
+  page.drawImage(logoImage, { x: x + pad, y: centerY - boxSize / 2 + pad, width: glyphSize, height: glyphSize });
+}
+
+/** Standard left offset for header text once the logo box (see
+ * drawBrandLogo) sits at the header's left margin — box width + gap. */
+export function logoTextOffset(boxSize = 34, gap = 10) {
+  return boxSize + gap;
+}
+
+// ============================================================================
+// Shared multi-page pagination scaffold — factors out the "header band on
+// every page, footer on every page, start a new page when a section won't
+// fit" logic that receiptPdf.js/driverBookingReport.js each hand-wrote
+// locally (see driverBookingReport.js's drawHeader/drawFooter/newPage/
+// ensureSpace closures). New multi-page admin reports (adminPerformanceReports.js)
+// use this instead of re-deriving it a third/fourth/fifth time; the two
+// existing documents are left exactly as they were (per the brief's "do not
+// redesign the existing PDFs") beyond the logo addition above.
+// ============================================================================
+
+/**
+ * Creates a paginated report "pager" that owns page creation, the repeated
+ * header band, and the repeated footer.
+ *
+ * @param {Object} params
+ * @param {import('pdf-lib').PDFDocument} params.pdfDoc
+ * @param {number} params.pageWidth
+ * @param {number} params.pageHeight
+ * @param {number} params.margin
+ * @param {number} params.contentWidth
+ * @param {import('pdf-lib').PDFFont} params.regularFont
+ * @param {Object} [params.supportContacts]
+ * @param {(ctx: {page: import('pdf-lib').PDFPage, pageNum: number, isFirstPage: boolean}) => number} params.drawHeader
+ *   Draws the header band for the given page and returns the y coordinate
+ *   content should start at.
+ * @param {number} [params.bottomMargin=60] - content never drawn below this y.
+ */
+export function createPagedReport({
+  pdfDoc, pageWidth, pageHeight, margin, contentWidth, regularFont,
+  supportContacts, drawHeader, bottomMargin = 60,
+}) {
+  let page = pdfDoc.addPage([pageWidth, pageHeight]);
+  let pageNum = 1;
+  let y = drawHeader({ page, pageNum, isFirstPage: true });
+
+  function drawFooterNow() {
+    drawDocumentFooter({
+      page, regularFont, margin, contentWidth,
+      pageLabel: formatPageLabel(pageNum), supportContacts,
+    });
+  }
+
+  function newPage() {
+    drawFooterNow();
+    page = pdfDoc.addPage([pageWidth, pageHeight]);
+    pageNum += 1;
+    y = drawHeader({ page, pageNum, isFirstPage: false });
+  }
+
+  /** Starts a new page first if drawing `height` more points would run
+   * past the footer. `onBreak()`, if given, re-draws anything (e.g. a
+   * table's column header row) that should repeat at the top of the new
+   * page. */
+  function ensureSpace(height, onBreak) {
+    if (y - height < bottomMargin) {
+      newPage();
+      onBreak?.();
+    }
+  }
+
+  return {
+    getPage: () => page,
+    getY: () => y,
+    setY: (v) => { y = v; },
+    ensureSpace,
+    finish: () => drawFooterNow(),
+  };
+}
+
+// ============================================================================
 // Shared footer drawing — identical footer treatment used at the bottom of
 // every page of both documents: a top border rule, the centralized Support
 // Contacts line on the left (via formatSupportFooterLine/fetchSupportContacts

@@ -89,21 +89,16 @@ export default function DriverReview() {
   async function handleApprove(driverId) {
     setError('');
     const driver = drivers.find(d => d.id === driverId);
-    const adminId = (await supabase.auth.getUser()).data.user?.id;
-    const { error: updateError } = await supabase
-      .from('driver_profiles')
-      .update({
-        verification_status: 'verified',
-        kyc_approved_at: new Date().toISOString(),
-        kyc_approved_by: adminId,
-        kyc_rejection_reason: null,
-        // There's no separate face-verification approve action — a single
-        // admin decision covers the whole submission, documents and face
-        // capture together, so this stays in lockstep with verification_status.
-        face_verification_status: driver?.face_verification_status === 'captured' ? 'approved' : driver?.face_verification_status,
-      })
-      .eq('profile_id', driverId);
-    if (updateError) { setError(updateError.message); return; }
+    // Goes through admin_review_driver_verification() -- see
+    // database/admin_management_roles_and_visibility.sql -- which
+    // independently re-checks the caller has the verification_admin (or
+    // super_admin) role before touching driver_profiles at all, and
+    // applies the exact same fields this used to set directly.
+    const { error: rpcError } = await supabase.rpc('admin_review_driver_verification', {
+      p_driver_id: driverId,
+      p_decision: 'verified',
+    });
+    if (rpcError) { setError(rpcError.message); return; }
 
     await logAudit(
       'kyc_approved',
@@ -118,15 +113,12 @@ export default function DriverReview() {
   async function handleReject(driverId, reason) {
     setError('');
     const driver = drivers.find(d => d.id === driverId);
-    const { error: updateError } = await supabase
-      .from('driver_profiles')
-      .update({
-        verification_status: 'rejected',
-        kyc_rejection_reason: reason,
-        face_verification_status: driver?.face_verification_status === 'captured' ? 'rejected' : driver?.face_verification_status,
-      })
-      .eq('profile_id', driverId);
-    if (updateError) { setError(updateError.message); return; }
+    const { error: rpcError } = await supabase.rpc('admin_review_driver_verification', {
+      p_driver_id: driverId,
+      p_decision: 'rejected',
+      p_reason: reason,
+    });
+    if (rpcError) { setError(rpcError.message); return; }
 
     await logAudit(
       'kyc_rejected',

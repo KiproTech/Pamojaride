@@ -325,11 +325,20 @@ export default function Bookings() {
               style={{ cursor: 'pointer' }}
             >
               <div className="flex-between" style={{ marginBottom: 12, alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
-                <div>
-                  <strong style={{ fontSize: 15 }}>{b.passenger_name || 'Unknown passenger'}</strong>
-                  <p style={{ margin: '3px 0 0', fontSize: 13, color: 'var(--text-muted)' }}>{b.passenger_phone || 'No phone on file'}</p>
-                  <p style={{ margin: '2px 0 0', fontSize: 13, fontWeight: 600 }}>{b.origin} → {b.destination}</p>
-                  <p style={{ margin: '2px 0 0', fontSize: 12.5, color: 'var(--text-muted)' }}>{formatDateTime(b.departure_time)}</p>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  {b.passenger_picture ? (
+                    <img src={b.passenger_picture} alt="" style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                  ) : (
+                    <span className="topbar-avatar" style={{ width: 40, height: 40, fontSize: 14, flexShrink: 0 }}>
+                      {(b.passenger_name || '?').trim().split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase()}
+                    </span>
+                  )}
+                  <div>
+                    <strong style={{ fontSize: 15 }}>{b.passenger_name || 'Unknown passenger'}</strong>
+                    <p style={{ margin: '3px 0 0', fontSize: 13, color: 'var(--text-muted)' }}>{b.passenger_phone || 'No phone on file'}</p>
+                    <p style={{ margin: '2px 0 0', fontSize: 13, fontWeight: 600 }}>{b.origin} → {b.destination}</p>
+                    <p style={{ margin: '2px 0 0', fontSize: 12.5, color: 'var(--text-muted)' }}>{formatDateTime(b.departure_time)}</p>
+                  </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                   <span className={`badge ${BOOKING_STATUS_BADGE[b.status] || 'badge-gray'}`}>

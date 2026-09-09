@@ -1,4 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 
 // Which portal is currently being viewed. One identity can have both a
 // driver and a passenger profile, so this can't come from a single
@@ -36,6 +37,7 @@ const NAV_BY_ROLE = {
     { to: '/admin/trips', label: 'Trip Oversight', icon: '🗺️' },
     { to: '/admin/users', label: 'User Management', icon: '👥' },
     { to: '/admin/reports', label: 'Reports & Appeals', icon: '🚩' },
+    { to: '/admin/analytics', label: 'Analytics & Performance', icon: '📊' },
     { to: '/admin/support', label: 'Help & Support', icon: '🆘' },
     { to: '/admin/notifications', label: 'Notifications', icon: '🔔' },
     { to: '/admin/audit-log', label: 'Audit Log', icon: '📋' },
@@ -47,7 +49,15 @@ const NAV_BY_ROLE = {
 export default function Sidebar({ open, onClose }) {
   const location = useLocation();
   const portal = activePortal(location.pathname);
-  const items = NAV_BY_ROLE[portal] || [];
+  // isSuperAdmin is false/undefined outside the admin portal (or before
+  // the admin_profiles row has loaded), so this is a no-op for every
+  // other portal.
+  const { isSuperAdmin } = useAuth();
+  const items = portal === 'admin'
+    ? isSuperAdmin
+      ? [...NAV_BY_ROLE.admin.slice(0, 1), { to: '/admin/admin-management', label: 'Admin Management', icon: '🛡️' }, ...NAV_BY_ROLE.admin.slice(1)]
+      : NAV_BY_ROLE.admin
+    : (NAV_BY_ROLE[portal] || []);
 
   return (
     <>

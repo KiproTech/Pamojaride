@@ -47,6 +47,7 @@ import DriverReview     from './pages/admin/DriverReview';
 import TripOversight    from './pages/admin/TripOversight';
 import UserManagement   from './pages/admin/UserManagement';
 import Reports          from './pages/admin/Reports';
+import Analytics        from './pages/admin/Analytics';
 import AdminReportDetails from './pages/admin/ReportDetails';
 import AdminSupport     from './pages/admin/Support';
 import AdminSupportDetails from './pages/admin/SupportDetails';
@@ -54,6 +55,8 @@ import AdminNotifications from './pages/admin/Notifications';
 import AdminProfile from './pages/admin/Profile';
 import AdminSupportContacts from './pages/admin/SupportContacts';
 import AuditLog         from './pages/admin/AuditLog';
+import AdminManagement  from './pages/admin/AdminManagement';
+import AcceptAdminInvite from './pages/auth/AcceptAdminInvite';
 
 // Account status (suspended / banned / pending driver approval) — scoped
 // to whichever role tripped it
@@ -75,8 +78,8 @@ import PendingApproval from './pages/status/PendingApproval';
 // driver can actually submit/resubmit documents) and /driver/profile (so
 // they can fix contact details). Every other driver route requires
 // verification_status === 'verified', enforced below.
-function ProtectedRoute({ children, role, allowUnverifiedDriver = false }) {
-  const { user, loading, isAdmin, statusFor, verificationStatus, isDriverVerified } = useAuth();
+function ProtectedRoute({ children, role, allowUnverifiedDriver = false, requireSuperAdmin = false, adminRoles = null }) {
+  const { user, loading, isAdmin, isSuperAdmin, hasAdminRole, statusFor, verificationStatus, isDriverVerified } = useAuth();
 
   if (loading) {
     return (
@@ -88,9 +91,21 @@ function ProtectedRoute({ children, role, allowUnverifiedDriver = false }) {
 
   if (!user) return <Navigate to="/" replace />;
 
-  // Admin routes: gated purely on the is_admin flag.
+  // Admin routes: gated on the is_admin flag (a deactivated admin has
+  // is_admin flipped back to false by Admin Management, so this already
+  // covers "deactivated admin loses access" with no extra check needed).
+  // requireSuperAdmin additionally gates Admin Management itself to the
+  // super_admin role tier -- enforced again on the backend by RLS on
+  // admin_profiles/admin_invitations, this is just the UI-level mirror.
   if (role === 'admin') {
-    return isAdmin ? children : <Navigate to="/admin/login" replace />;
+    if (!isAdmin) return <Navigate to="/admin/login" replace />;
+    if (requireSuperAdmin && !isSuperAdmin) return <Navigate to="/admin/dashboard" replace />;
+    // adminRoles: e.g. ['verification_admin'] on Driver Review, ['reports_admin']
+    // on Reports/Analytics. super_admin always passes (hasAdminRole ORs it
+    // in), and pages with no adminRoles list stay open to every admin tier
+    // ("general administrative access"), matching the spec's Admin role.
+    if (adminRoles && !hasAdminRole(adminRoles)) return <Navigate to="/admin/dashboard" replace />;
+    return children;
   }
 
   // Driver / passenger routes: gated on that specific role profile
@@ -192,6 +207,10 @@ export default function App() {
 
       {/* Auth — admin */}
       <Route path="/admin/login" element={<PublicRoute preferredRole="admin"><AdminLogin /></PublicRoute>} />
+      {/* Not wrapped in PublicRoute: an invited person may already be signed
+          into another portal (or nothing at all), and needs to reach this
+          page regardless -- it handles its own auth state internally. */}
+      <Route path="/admin/accept-invite" element={<AcceptAdminInvite />} />
 
       {/* Passenger pages */}
       <Route path="/passenger/dashboard" element={<ProtectedRoute role="passenger"><PassengerDashboard /></ProtectedRoute>} />
@@ -222,17 +241,19 @@ export default function App() {
 
       {/* Admin pages */}
       <Route path="/admin/dashboard"      element={<ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>} />
-      <Route path="/admin/drivers/review" element={<ProtectedRoute role="admin"><DriverReview /></ProtectedRoute>} />
+      <Route path="/admin/drivers/review" element={<ProtectedRoute role="admin" adminRoles={['verification_admin']}><DriverReview /></ProtectedRoute>} />
       <Route path="/admin/trips"          element={<ProtectedRoute role="admin"><TripOversight /></ProtectedRoute>} />
       <Route path="/admin/users"          element={<ProtectedRoute role="admin"><UserManagement /></ProtectedRoute>} />
       <Route path="/admin/reports"        element={<ProtectedRoute role="admin"><Reports /></ProtectedRoute>} />
+      <Route path="/admin/analytics"      element={<ProtectedRoute role="admin" adminRoles={['reports_admin']}><Analytics /></ProtectedRoute>} />
       <Route path="/admin/reports/:reportId" element={<ProtectedRoute role="admin"><AdminReportDetails /></ProtectedRoute>} />
-      <Route path="/admin/support"        element={<ProtectedRoute role="admin"><AdminSupport /></ProtectedRoute>} />
-      <Route path="/admin/support/:requestId" element={<ProtectedRoute role="admin"><AdminSupportDetails /></ProtectedRoute>} />
+      <Route path="/admin/support"        element={<ProtectedRoute role="admin" adminRoles={['support_admin']}><AdminSupport /></ProtectedRoute>} />
+      <Route path="/admin/support/:requestId" element={<ProtectedRoute role="admin" adminRoles={['support_admin']}><AdminSupportDetails /></ProtectedRoute>} />
       <Route path="/admin/notifications"  element={<ProtectedRoute role="admin"><AdminNotifications /></ProtectedRoute>} />
       <Route path="/admin/profile"        element={<ProtectedRoute role="admin"><AdminProfile /></ProtectedRoute>} />
       <Route path="/admin/settings/support-contacts" element={<ProtectedRoute role="admin"><AdminSupportContacts /></ProtectedRoute>} />
       <Route path="/admin/audit-log"      element={<ProtectedRoute role="admin"><AuditLog /></ProtectedRoute>} />
+      <Route path="/admin/admin-management" element={<ProtectedRoute role="admin" requireSuperAdmin><AdminManagement /></ProtectedRoute>} />
 
       {/* Fallback */}
       <Route path="*" element={<Navigate to="/" replace />} />

@@ -54,7 +54,7 @@ export default function UserManagement() {
     setLoading(true);
     setError('');
 
-    const identityCols = 'full_name, email, phone, created_at';
+    const identityCols = 'full_name, email, phone, profile_picture, created_at';
     const [driversRes, passengersRes] = await Promise.all([
       supabase
         .from('driver_profiles')
@@ -225,7 +225,18 @@ export default function UserManagement() {
                 const approval = approvalStatusFor(u);
                 return (
                   <tr key={u.rowKey} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={{ padding: '14px 20px', fontSize: 13.5, fontWeight: 600 }}>{u.full_name}</td>
+                    <td style={{ padding: '14px 20px', fontSize: 13.5, fontWeight: 600 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        {u.profile_picture ? (
+                          <img src={u.profile_picture} alt="" style={{ width: 30, height: 30, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                        ) : (
+                          <span className="topbar-avatar" style={{ width: 30, height: 30, fontSize: 11, flexShrink: 0 }}>
+                            {(u.full_name || '?').trim().split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase()}
+                          </span>
+                        )}
+                        {u.full_name}
+                      </div>
+                    </td>
                     <td style={{ padding: '14px 20px', fontSize: 12.5, color: 'var(--text-muted)' }}>{u.email}<br />{u.phone}</td>
                     <td style={{ padding: '14px 20px', fontSize: 12.5, textTransform: 'capitalize' }}>{u.role}</td>
                     <td style={{ padding: '14px 20px' }}>
