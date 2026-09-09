@@ -7,12 +7,15 @@ import TripForm from '../../components/driver/TripForm';
 import { estimateArrival } from '../../lib/location';
 
 // Maps known failure modes to a friendly message instead of showing a raw
-// Postgres/Supabase error string to the driver. Note: the scheduling-limit
-// trigger (enforce_trip_scheduling_limits) already raises its own
-// human-readable messages ("You already have 2 scheduled trips...",
-// "Your next trip can start from ...") — those pass straight through the
-// fallback below unchanged, since they're already exactly what we'd want
-// to show.
+// Postgres/Supabase error string to the driver. Note: the scheduling
+// trigger (enforce_trip_scheduling_limits) and the seat-capacity trigger
+// (enforce_trip_seat_capacity) already raise their own human-readable
+// messages ("Your next trip can start from ...", "You cannot offer more
+// seats than your vehicle's capacity...") — those pass straight through
+// the fallback below unchanged, since they're already exactly what we'd
+// want to show. There is deliberately no cap on the number of trips a
+// driver can have open at once (see
+// database/driver_trip_and_seat_restrictions.sql).
 function friendlyInsertError(insertError) {
   const msg = insertError?.message || '';
   if (insertError?.code === '23514' || /check constraint/i.test(msg)) {
@@ -30,7 +33,7 @@ export default function CreateTrip() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  // Passed down to TripForm so it can show the max-2/overlap/buffer verdict
+  // Passed down to TripForm so it can show the overlap/buffer verdict
   // live, before the driver even submits. This calls the same
   // check_trip_schedule_availability RPC that mirrors the BEFORE INSERT
   // trigger's logic — it's a read-only pre-check, not the source of truth;
@@ -71,6 +74,21 @@ export default function CreateTrip() {
 
     const totalSeats = parseInt(form.total_seats, 10);
     const estimatedArrival = estimateArrival(departure, form.route_duration_minutes);
+
+    // Defense-in-depth: TripForm already caps the seat selector at the
+    // driver's own vehicle_seats, but re-check here since this is the
+    // actual write path — the database trigger (enforce_trip_seat_capacity)
+    // remains the real, race-condition-proof authority.
+    if (!driverProfile?.vehicle_seats) {
+      setSubmitting(false);
+      setError("Your vehicle's seat capacity isn't set yet. Update your vehicle details before posting a trip.");
+      return;
+    }
+    if (!Number.isInteger(totalSeats) || totalSeats < 1 || totalSeats > driverProfile.vehicle_seats) {
+      setSubmitting(false);
+      setError(`Seats to offer must be between 1 and your vehicle's capacity (${driverProfile.vehicle_seats}).`);
+      return;
+    }
 
     // Re-check scheduling availability immediately before saving (on top of
     // TripForm's live check and the database trigger) to catch the common

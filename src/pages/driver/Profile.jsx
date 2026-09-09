@@ -48,13 +48,13 @@ function VerifiedVehicleCard({ driverProfile }) {
 
       <div className="divider" />
 
-      <div className="grid-3" style={{ gap: 12 }}>
+      <div className="grid-2" style={{ gap: 12 }}>
         <TrustStat label="Trust level" value={`L${driverProfile?.trust_level || 1}`} />
-        <TrustStat label="Max seats/trip" value={driverProfile?.max_seats_per_trip} />
         <TrustStat label="Payout delay" value={`${driverProfile?.payout_delay_hours}h`} />
       </div>
       <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 12 }}>
         These limits grow automatically as you complete more trips with a clean record. {driverProfile?.trips_completed || 0} trips completed so far.
+        Seats you can offer per trip are set by your vehicle's capacity ({driverProfile?.vehicle_seats || '—'} seats), not by trust level.
       </p>
     </div>
   );

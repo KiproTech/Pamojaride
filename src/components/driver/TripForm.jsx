@@ -16,7 +16,7 @@ const IDLE_AVAILABILITY = { status: 'idle' };
 // `onCheckAvailability` is optional: a function (departureIso, estimatedArrivalIso)
 // => Promise<{ allowed, reason }> that the parent wires up to the
 // check_trip_schedule_availability RPC. When both a valid route and a
-// departure time are set, this form calls it so the driver sees the max-2 /
+// departure time are set, this form calls it so the driver sees the
 // overlap / buffer verdict (with the exact "earliest start" message) before
 // they even try to submit — the same rule the database enforces at insert
 // time, just surfaced earlier for a better experience.
@@ -34,7 +34,7 @@ export default function TripForm({ profile, initialValues, onSubmit, onCheckAvai
     dropoff_point: initialValues?.dropoff_point || '',
     departure_time: initialValues?.departure_time || '',
     price_per_seat: initialValues?.price_per_seat || '',
-    total_seats: initialValues?.total_seats || Math.min(profile?.vehicle_seats || 4, profile?.max_seats_per_trip || 4),
+    total_seats: initialValues?.total_seats || profile?.vehicle_seats || 1,
     notes: initialValues?.notes || '',
   });
 
@@ -72,9 +72,9 @@ export default function TripForm({ profile, initialValues, onSubmit, onCheckAvai
     : null;
 
   // Once we have a computed route AND a departure time, ask the backend
-  // whether this slot is actually available for this driver (max 2 trips,
-  // no overlap, 1h30 buffer). Debounced so changing the date/time picker
-  // doesn't fire a request per keystroke.
+  // whether this slot overlaps any of the driver's other open trips
+  // (with a 1h30 safety buffer). Debounced so changing the date/time
+  // picker doesn't fire a request per keystroke.
   useEffect(() => {
     if (!onCheckAvailability || route.status !== 'ready' || !form.departure_time) {
       setAvailability(IDLE_AVAILABILITY);
@@ -150,7 +150,13 @@ export default function TripForm({ profile, initialValues, onSubmit, onCheckAvai
     });
   }
 
-  const maxSeats = profile?.max_seats_per_trip || 2;
+  // Seats offered can never exceed the driver's own registered vehicle
+  // capacity — enforced again, as the real source of truth, by
+  // enforce_trip_seat_capacity() in the database (see
+  // database/driver_trip_and_seat_restrictions.sql). There is no other,
+  // arbitrary/trust-level cap: a driver with a 14-seat matatu can offer
+  // up to 14 seats, not a fixed platform maximum.
+  const maxSeats = profile?.vehicle_seats || 0;
 
   return (
     <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -236,14 +242,22 @@ export default function TripForm({ profile, initialValues, onSubmit, onCheckAvai
         </div>
         <div className="form-group">
           <label className="form-label">Seats to offer</label>
-          <select className="form-select" value={form.total_seats} onChange={set('total_seats')} required>
-            {Array.from({ length: maxSeats }, (_, i) => i + 1).map(n => (
-              <option key={n} value={n}>{n} seat{n > 1 ? 's' : ''}</option>
-            ))}
-          </select>
-          <p style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 4 }}>
-            Your trust level allows up to {maxSeats} seats per trip.
-          </p>
+          {maxSeats > 0 ? (
+            <>
+              <select className="form-select" value={form.total_seats} onChange={set('total_seats')} required>
+                {Array.from({ length: maxSeats }, (_, i) => i + 1).map(n => (
+                  <option key={n} value={n}>{n} seat{n > 1 ? 's' : ''}</option>
+                ))}
+              </select>
+              <p style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 4 }}>
+                Limited to your vehicle's capacity ({maxSeats} seat{maxSeats > 1 ? 's' : ''}).
+              </p>
+            </>
+          ) : (
+            <p style={{ fontSize: 12.5, color: 'var(--red)' }}>
+              Your vehicle's seat capacity isn't set yet — update it in your profile before posting a trip.
+            </p>
+          )}
         </div>
       </div>
 
@@ -256,7 +270,7 @@ export default function TripForm({ profile, initialValues, onSubmit, onCheckAvai
         🚗 Posting as {profile?.vehicle_make} {profile?.vehicle_model} · {profile?.vehicle_plate}
       </div>
 
-      <button className="btn btn-primary" disabled={submitting || availability.status === 'checking' || availability.status === 'blocked'}>
+      <button className="btn btn-primary" disabled={submitting || maxSeats === 0 || availability.status === 'checking' || availability.status === 'blocked'}>
         {submitting ? <span className="spinner" /> : submitLabel}
       </button>
     </form>
