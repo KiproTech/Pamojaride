@@ -5,6 +5,7 @@ import DashboardLayout from '../../components/shared/DashboardLayout';
 import BookingModal from '../../components/passenger/BookingModal';
 import DriverPreviewCard from '../../components/passenger/DriverPreviewCard';
 import ReviewsList from '../../components/shared/ReviewsList';
+import SecurePaymentNotice from '../../components/shared/SecurePaymentNotice';
 import { fetchTripDriverPreviews, fetchDriverReviews } from '../../lib/driverDetails';
 
 function formatKES(amount) {
@@ -124,6 +125,10 @@ export default function TripDetails() {
         )}
 
         {trip.notes && <p style={{ fontSize: 13.5, color: 'var(--text-muted)', marginBottom: 16 }}>{trip.notes}</p>}
+
+        <div style={{ marginBottom: 16 }}>
+          <SecurePaymentNotice />
+        </div>
 
         {trip.status === 'scheduled' && trip.available_seats > 0 ? (
           <button className="btn btn-primary" onClick={() => setShowBooking(true)}>Book this trip</button>

@@ -6,6 +6,7 @@ import DashboardLayout from '../../components/shared/DashboardLayout';
 import ReportPreviewModal from '../../components/driver/ReportPreviewModal';
 import CancelBookingModal from '../../components/driver/CancelBookingModal';
 import ReportModal from '../../components/shared/ReportModal';
+import TripPassengerCompletionsModal from '../../components/shared/TripPassengerCompletionsModal';
 import { buildDriverBookingReportPdf } from '../../lib/reports/driverBookingReport';
 import { fetchSupportContacts } from '../../lib/support/supportContacts';
 
@@ -101,6 +102,7 @@ export default function Bookings() {
   // authorization rules and the admin-notification trigger this fires.
   const [reportTarget, setReportTarget] = useState(null);
   const [reportSuccess, setReportSuccess] = useState('');
+  const [passengerCompletionsTrip, setPassengerCompletionsTrip] = useState(null); // { id, origin, destination } for the per-passenger modal
 
   // Revoke whatever blob URL is open when the page itself unmounts (e.g.
   // navigating away with the preview still open) so it isn't left dangling.
@@ -387,6 +389,14 @@ export default function Bookings() {
                     Cancel booking
                   </button>
                 )}
+                {b.trip_status === 'completion_pending' && (
+                  <button
+                    className="btn btn-sm btn-outline"
+                    onClick={() => setPassengerCompletionsTrip({ id: b.trip_id, origin: b.origin, destination: b.destination })}
+                  >
+                    View passenger confirmations
+                  </button>
+                )}
                 <button className="btn btn-sm btn-ghost" onClick={() => { setReportSuccess(''); setReportTarget(b); }}>
                   🚩 Report
                 </button>
@@ -423,6 +433,14 @@ export default function Bookings() {
           reportedRole="passenger"
           onClose={() => setReportTarget(null)}
           onSuccess={() => { setReportTarget(null); setReportSuccess('Report submitted. Our team will review it shortly.'); }}
+        />
+      )}
+
+      {passengerCompletionsTrip && (
+        <TripPassengerCompletionsModal
+          tripId={passengerCompletionsTrip.id}
+          tripLabel={`${passengerCompletionsTrip.origin} → ${passengerCompletionsTrip.destination}`}
+          onClose={() => setPassengerCompletionsTrip(null)}
         />
       )}
     </DashboardLayout>

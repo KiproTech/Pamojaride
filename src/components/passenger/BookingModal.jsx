@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { supabase } from '../../lib/supabase';
+import SecurePaymentNotice from '../shared/SecurePaymentNotice';
 
 function formatKES(amount) {
   return new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES', maximumFractionDigits: 0 }).format(amount || 0);
@@ -65,6 +66,10 @@ export default function BookingModal({ trip, onClose, onSuccess }) {
         </div>
 
         <div className="divider" />
+
+        <div style={{ marginBottom: 16 }}>
+          <SecurePaymentNotice variant="compact" />
+        </div>
 
         <div className="flex-between" style={{ marginBottom: 16 }}>
           <span style={{ fontWeight: 600 }}>Total</span>

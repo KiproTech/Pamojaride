@@ -66,8 +66,14 @@ export default function RatingModal({ booking, driverId, onClose, onSuccess }) {
         </div>
 
         <div className="form-group">
-          <label className="form-label">Comment <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
-          <textarea className="form-input" rows={3} value={comment} onChange={e => setComment(e.target.value)} placeholder="How was your trip?" />
+          <label className="form-label">Review <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
+          <textarea
+            className="form-input"
+            rows={3}
+            value={comment}
+            onChange={e => setComment(e.target.value)}
+            placeholder="Share your experience with the driver and the service — professionalism, punctuality, communication, the vehicle, or the trip overall."
+          />
         </div>
 
         <button className="btn btn-primary btn-full" disabled={submitting} onClick={handleSubmit}>

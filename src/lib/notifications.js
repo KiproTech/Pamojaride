@@ -33,6 +33,8 @@ const TYPE_ICON = {
   trip_reminder: '⏰',
   trip_completion_pending: '🏁',
   trip_completed: '🏁',
+  trip_completion_confirmed_by_passenger: '✅',
+  trip_completion_declined_by_passenger: '❌',
   kyc_submitted: '🪪',
   kyc_approved: '✅',
   kyc_rejected: '⛔',
@@ -149,6 +151,17 @@ export function notificationHref(notif, { isAdmin, portal }) {
       return { pathname: `/${portal}/support/${requestId}` };
     }
     return null;
+  }
+  // Trip completion — accept/decline (passenger) and the driver-facing
+  // "passenger confirmed/declined" notifications all carry a booking_id
+  // so the recipient lands directly on the relevant booking, where the
+  // Accept/Decline card (passenger) or the passenger's status (driver)
+  // is shown — never the pre-booking Trip Details page.
+  if (
+    ['trip_completion_pending', 'trip_completed', 'trip_completion_confirmed_by_passenger', 'trip_completion_declined_by_passenger', 'booking_no_show'].includes(notif.type)
+    && notif.data?.booking_id && (portal === 'driver' || portal === 'passenger')
+  ) {
+    return { pathname: `/${portal}/bookings/${notif.data.booking_id}` };
   }
   if (notif.type?.startsWith('booking_') && notif.data?.booking_id && (portal === 'driver' || portal === 'passenger')) {
     return { pathname: `/${portal}/bookings/${notif.data.booking_id}` };

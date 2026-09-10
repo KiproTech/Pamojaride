@@ -6,6 +6,7 @@ import DashboardLayout from '../../components/shared/DashboardLayout';
 import TripCard from '../../components/shared/TripCard';
 import CancelTripModal from '../../components/driver/CancelTripModal';
 import CompletionStatus from '../../components/shared/CompletionStatus';
+import TripPassengerCompletionsModal from '../../components/shared/TripPassengerCompletionsModal';
 import { fetchTripCompletionStatuses, nudgeAutoCompletion } from '../../lib/tripCompletion';
 
 // ── status grouping ──────────────────────────────────────────────────────
@@ -70,6 +71,7 @@ export default function ManageTrips() {
   const [cancelModalError, setCancelModalError] = useState('');
   const [completionStatuses, setCompletionStatuses] = useState({}); // tripId -> get_trip_completion_status row
   const [completionLoading, setCompletionLoading] = useState(false);
+  const [passengerCompletionsTrip, setPassengerCompletionsTrip] = useState(null); // trip whose per-passenger modal is open
   const pollRef = useRef(null);
 
   const load = useCallback(async ({ silent } = {}) => {
@@ -188,7 +190,7 @@ export default function ManageTrips() {
   }
 
   async function handleComplete(tripId) {
-    if (!confirm("Mark this trip as finished? If there are passengers on board, they'll get 20 minutes to confirm before it's completed automatically.")) return;
+    if (!confirm("Mark this trip as finished? Each passenger will be asked individually to confirm or decline — nobody is marked completed automatically just because others confirm.")) return;
     setBusyId(tripId); setActionError('');
     const { error: err } = await supabase.rpc('complete_trip', { p_trip_id: tripId });
     setBusyId(null);
@@ -312,6 +314,11 @@ export default function ManageTrips() {
                         {busyId === trip.id ? <span className="spinner" /> : 'Cancel trip'}
                       </button>
                     )}
+                    {trip.status === 'completion_pending' && (
+                      <button className="btn btn-sm btn-outline" onClick={() => setPassengerCompletionsTrip(trip)}>
+                        View passenger confirmations
+                      </button>
+                    )}
                     {isActiveTrip(trip) && trip.status !== 'completion_pending' && (
                       // Once a trip has started (ongoing, or scheduled but past its
                       // departure time) it can no longer be cancelled by the driver —
@@ -339,6 +346,14 @@ export default function ManageTrips() {
           error={cancelModalError}
           onConfirm={confirmCancelTrip}
           onClose={() => { if (busyId !== cancelTarget.id) setCancelTarget(null); }}
+        />
+      )}
+
+      {passengerCompletionsTrip && (
+        <TripPassengerCompletionsModal
+          tripId={passengerCompletionsTrip.id}
+          tripLabel={`${passengerCompletionsTrip.origin} → ${passengerCompletionsTrip.destination}`}
+          onClose={() => setPassengerCompletionsTrip(null)}
         />
       )}
     </DashboardLayout>

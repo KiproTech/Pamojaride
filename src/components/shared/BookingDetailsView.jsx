@@ -5,6 +5,7 @@ import { fetchPassengerBookingDetail, fetchDriverBookingDetail } from '../../lib
 import { buildBookingReceiptPdf } from '../../lib/reports/receiptPdf';
 import { fetchSupportContacts } from '../../lib/support/supportContacts';
 import PdfPreviewModal from './PdfPreviewModal';
+import SecurePaymentNotice from './SecurePaymentNotice';
 
 const BOOKING_STATUS_BADGE = {
   pending: 'badge-amber', confirmed: 'badge-teal', completed: 'badge-green',
@@ -287,6 +288,12 @@ export default function BookingDetailsView({ portal }) {
           <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>Not available for this booking.</p>
         )}
       </div>
+
+      {portal === 'passenger' && (
+        <div style={{ marginBottom: 16 }}>
+          <SecurePaymentNotice variant="compact" />
+        </div>
+      )}
 
       {/* Receipt */}
       <div className="card card-pad">

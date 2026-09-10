@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import DashboardLayout from '../../components/shared/DashboardLayout';
+import TripPassengerCompletionsModal from '../../components/shared/TripPassengerCompletionsModal';
 
 const STATUS_TABS = [
   { value: 'all', label: 'All' },
@@ -40,6 +41,7 @@ export default function TripOversight() {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [passengerCompletionsTrip, setPassengerCompletionsTrip] = useState(null); // trip whose per-passenger modal is open
 
   // ── Cancellation history (booking-level) ────────────────────────────────
   // Whole-trip cancellations are already shown inline in the table below
@@ -190,11 +192,18 @@ export default function TripOversight() {
                     )}
                   </td>
                   <td style={{ padding: '14px 20px', textAlign: 'right' }}>
-                    {(t.status === 'scheduled' || t.status === 'ongoing') && (
-                      <button className="btn btn-sm btn-danger" onClick={() => { setCancelTarget(t); setReason(''); }}>
-                        Cancel
-                      </button>
-                    )}
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                      {(t.status === 'completion_pending' || t.status === 'completed') && (
+                        <button className="btn btn-sm btn-outline" onClick={() => setPassengerCompletionsTrip(t)}>
+                          View Details
+                        </button>
+                      )}
+                      {(t.status === 'scheduled' || t.status === 'ongoing') && (
+                        <button className="btn btn-sm btn-danger" onClick={() => { setCancelTarget(t); setReason(''); }}>
+                          Cancel
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -291,6 +300,14 @@ export default function TripOversight() {
             </div>
           </div>
         </div>
+      )}
+
+      {passengerCompletionsTrip && (
+        <TripPassengerCompletionsModal
+          tripId={passengerCompletionsTrip.id}
+          tripLabel={`${passengerCompletionsTrip.origin} → ${passengerCompletionsTrip.destination}`}
+          onClose={() => setPassengerCompletionsTrip(null)}
+        />
       )}
     </DashboardLayout>
   );

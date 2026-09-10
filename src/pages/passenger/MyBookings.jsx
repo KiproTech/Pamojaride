@@ -8,7 +8,7 @@ import RatingModal from '../../components/passenger/RatingModal';
 import ReportModal from '../../components/shared/ReportModal';
 import CompletionStatus from '../../components/shared/CompletionStatus';
 import DriverDetailsCard from '../../components/passenger/DriverDetailsCard';
-import { fetchTripCompletionStatuses, confirmTripCompletion } from '../../lib/tripCompletion';
+import { fetchTripCompletionStatuses, acceptTripCompletion, declineTripCompletion } from '../../lib/tripCompletion';
 import { fetchBookedTripDriverDetailsBatch } from '../../lib/driverDetails';
 
 const TABS = [
@@ -37,7 +37,7 @@ export default function MyBookings() {
   const [reportTarget, setReportTarget] = useState(null);
   const [completionStatuses, setCompletionStatuses] = useState({}); // tripId -> get_trip_completion_status row
   const [completionLoading, setCompletionLoading] = useState(false);
-  const [confirmingTripId, setConfirmingTripId] = useState(null);
+  const [respondingTripId, setRespondingTripId] = useState(null);
   const [driverDetails, setDriverDetails] = useState({}); // tripId -> get_booked_trip_driver_details row
   const [driverDetailsLoading, setDriverDetailsLoading] = useState(false);
   const pollRef = useRef(null);
@@ -61,15 +61,28 @@ export default function MyBookings() {
   useEffect(() => { if (user) load(); }, [user]);
 
   // While any of this passenger's bookings sit on a trip that's in
-  // `completion_pending`, poll the confirmation progress/time-remaining
-  // every 15s so the "Confirm trip is complete" card stays live. The
-  // 20-minute deadline itself is enforced server-side regardless of
+  // `completion_pending`, poll the per-passenger accept/decline breakdown
+  // every 15s so the "Accept & Mark Completed / Decline" card stays live.
+  // The completion window itself is enforced server-side regardless of
   // whether this passenger ever opens the app — see
-  // database/trip_auto_completion.sql.
+  // database/trip_completion_individual_confirmations.sql. Also fetches
+  // (once, no polling) the status for a trip behind a declined ('no_show')
+  // booking, purely so this passenger's own decline reason can still be
+  // shown on that booking's card.
   useEffect(() => {
     const pendingTripIds = [...new Set(
       bookings.filter(b => b.trips?.status === 'completion_pending').map(b => b.trips.id)
     )];
+    const declinedTripIds = [...new Set(
+      bookings.filter(b => b.status === 'no_show' && b.trips?.id).map(b => b.trips.id)
+    )].filter(id => !pendingTripIds.includes(id) && !completionStatuses[id]);
+
+    if (declinedTripIds.length > 0) {
+      fetchTripCompletionStatuses(declinedTripIds).then(statuses => {
+        setCompletionStatuses(prev => ({ ...prev, ...statuses }));
+      });
+    }
+
     if (pendingTripIds.length === 0) {
       if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
       return;
@@ -92,7 +105,7 @@ export default function MyBookings() {
     pollRef.current = setInterval(poll, 15000);
     return () => { cancelled = true; if (pollRef.current) clearInterval(pollRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookings.map(b => `${b.trips?.id}:${b.trips?.status}`).join(',')]);
+  }, [bookings.map(b => `${b.trips?.id}:${b.trips?.status}:${b.status}`).join(',')]);
 
   // Fetch full driver details (name, photo, phone, vehicle, verification
   // status) for every trip this passenger has a confirmed or completed
@@ -115,17 +128,29 @@ export default function MyBookings() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookings.map(b => `${b.id}:${b.status}:${b.trips?.id}`).join(',')]);
 
-  async function handleConfirmCompletion(tripId) {
-    setConfirmingTripId(tripId); setError('');
+  async function handleAcceptCompletion(tripId) {
+    setRespondingTripId(tripId); setError('');
     try {
-      await confirmTripCompletion(tripId);
+      await acceptTripCompletion(tripId);
       const status = await fetchTripCompletionStatuses([tripId]);
       setCompletionStatuses(prev => ({ ...prev, ...status }));
       load();
     } catch (err) {
       setError(err.message || 'Could not confirm trip completion.');
     } finally {
-      setConfirmingTripId(null);
+      setRespondingTripId(null);
+    }
+  }
+
+  async function handleDeclineCompletion(tripId, reason, comment) {
+    setRespondingTripId(tripId);
+    try {
+      await declineTripCompletion(tripId, reason, comment);
+      const status = await fetchTripCompletionStatuses([tripId]);
+      setCompletionStatuses(prev => ({ ...prev, ...status }));
+      load();
+    } finally {
+      setRespondingTripId(null);
     }
   }
 
@@ -203,9 +228,11 @@ export default function MyBookings() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {filtered.map(b => {
             const alreadyRated = ratedBookingIds.has(b.id);
-            const showDriverCard = ['confirmed', 'completed'].includes(b.status) && !!b.trips?.id;
+            const hasTrip = !!b.trips?.id;
+            const showDriverCard = ['confirmed', 'completed'].includes(b.status) && hasTrip;
             const showCompletion = b.status === 'confirmed' && b.trips?.status === 'completion_pending';
-            const extraContent = (showDriverCard || showCompletion) ? (
+            const showDeclineNote = b.status === 'no_show' && hasTrip && completionStatuses[b.trips.id]?.caller_response === 'declined';
+            const extraContent = (showDriverCard || showCompletion || showDeclineNote) ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {showDriverCard && (
                   <DriverDetailsCard
@@ -217,18 +244,31 @@ export default function MyBookings() {
                   <CompletionStatus
                     status={completionStatuses[b.trips.id]}
                     loading={completionLoading}
-                    onConfirm={() => handleConfirmCompletion(b.trips.id)}
-                    confirming={confirmingTripId === b.trips.id}
+                    onAccept={() => handleAcceptCompletion(b.trips.id)}
+                    onDecline={(reason, comment) => handleDeclineCompletion(b.trips.id, reason, comment)}
+                    responding={respondingTripId === b.trips.id}
                   />
+                )}
+                {showDeclineNote && (
+                  <div className="alert alert-danger" style={{ padding: '8px 12px', fontSize: 12.5 }}>
+                    ✕ You declined this trip's completion confirmation.
+                  </div>
                 )}
               </div>
             ) : false;
+            // Defensive fallback: if the embedded trip failed to load for
+            // any reason, show a clear placeholder instead of
+            // "undefined → undefined" / "Invalid Date".
+            const routeLabel = hasTrip ? `${b.trips.origin} → ${b.trips.destination}` : 'Trip details unavailable';
+            const departureLabel = hasTrip && b.trips.departure_time
+              ? new Date(b.trips.departure_time).toLocaleString('en-KE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+              : '—';
             return (
               <BookingCard
                 key={b.id}
                 booking={b}
-                personName={`${b.trips?.origin} → ${b.trips?.destination}`}
-                personLabel={new Date(b.trips?.departure_time).toLocaleString('en-KE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                personName={routeLabel}
+                personLabel={departureLabel}
                 extra={extraContent}
                 onClick={() => navigate(`/passenger/bookings/${b.id}`)}
                 actions={
@@ -238,7 +278,7 @@ export default function MyBookings() {
                         {busyId === b.id ? <span className="spinner" /> : 'Cancel'}
                       </button>
                     )}
-                    {b.status === 'completed' && !alreadyRated && (
+                    {b.status === 'completed' && !alreadyRated && hasTrip && (
                       <button className="btn btn-sm btn-primary" onClick={() => setRateTarget(b)}>⭐ Rate driver</button>
                     )}
                     {b.status === 'completed' && alreadyRated && (

@@ -56,11 +56,11 @@ export default function BookingCard({ booking, personName, personLabel, tripLabe
       <div className="grid-3" style={{ gap: 8, marginBottom: actions ? 14 : 0 }}>
         <div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Reference</div>
-          <div style={{ fontSize: 13, fontWeight: 700 }}>{booking.booking_reference}</div>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>{booking.booking_reference || '—'}</div>
         </div>
         <div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Seats</div>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>{booking.seats_booked}</div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>{booking.seats_booked ?? '—'}</div>
         </div>
         <div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Total</div>
