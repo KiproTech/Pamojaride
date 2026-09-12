@@ -27,7 +27,7 @@ export default function CompletionStatus({ status, loading, onAccept, onDecline,
     );
   }
 
-  const { accepted_count, declined_count, pending_count, total_passengers, seconds_remaining, caller_response, caller_decline_reason } = status;
+  const { accepted_count, declined_count, auto_completed_count, pending_count, total_passengers, seconds_remaining, caller_response, caller_decline_reason } = status;
 
   async function handleDeclineSubmit(reason, comment) {
     setDeclineError('');
@@ -42,9 +42,11 @@ export default function CompletionStatus({ status, loading, onAccept, onDecline,
   return (
     <div className="alert alert-amber" style={{ padding: '10px 12px', fontSize: 12.5, display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div>
-        🏁 <strong>{accepted_count} accepted</strong> · {declined_count} declined · {pending_count} awaiting response
+        🏁 <strong>{accepted_count} accepted</strong> · {declined_count} declined
+        {auto_completed_count > 0 && <> · {auto_completed_count} auto-completed</>}
+        {' '}· {pending_count} awaiting response
         {' '}({total_passengers} passenger{total_passengers === 1 ? '' : 's'} total)
-        {seconds_remaining != null && <> — {formatSecondsRemaining(seconds_remaining)}</>}
+        {seconds_remaining != null && pending_count > 0 && <> — {formatSecondsRemaining(seconds_remaining)}</>}
       </div>
 
       {typeof onAccept === 'function' && (
@@ -53,6 +55,10 @@ export default function CompletionStatus({ status, loading, onAccept, onDecline,
         ) : caller_response === 'declined' ? (
           <span className="badge badge-danger" style={{ alignSelf: 'flex-start' }}>
             ✕ You declined — {REASON_LABEL[caller_decline_reason] || caller_decline_reason}
+          </span>
+        ) : caller_response === 'auto_completed' ? (
+          <span className="badge badge-gray" style={{ alignSelf: 'flex-start' }}>
+            ⏱️ Automatically marked completed — you didn't respond within 20 minutes
           </span>
         ) : (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>

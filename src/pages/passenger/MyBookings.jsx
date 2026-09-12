@@ -23,7 +23,7 @@ export default function MyBookings() {
   const navigate = useNavigate();
   const [bookings, setBookings] = useState([]);
   const [search, setSearch] = useState('');
-  const [ratedBookingIds, setRatedBookingIds] = useState(new Set());
+  const [myRatings, setMyRatings] = useState({}); // booking_id -> { rating, comment }
   const [loading, setLoading] = useState(true);
   // A "Trip cancelled" notification links here with state: { tab: 'cancelled' }
   // (see components/shared/NotificationBell.jsx) so the passenger lands
@@ -51,9 +51,9 @@ export default function MyBookings() {
       .order('created_at', { ascending: false });
     if (!err) setBookings(data || []);
 
-    const { data: myRatings } = await supabase
-      .from('ratings').select('booking_id').eq('rater_id', user.id).eq('rating_type', 'passenger_to_driver');
-    setRatedBookingIds(new Set((myRatings || []).map(r => r.booking_id)));
+    const { data: myRatingsData } = await supabase
+      .from('ratings').select('booking_id, rating, comment').eq('rater_id', user.id).eq('rating_type', 'passenger_to_driver');
+    setMyRatings(Object.fromEntries((myRatingsData || []).map(r => [r.booking_id, r])));
 
     setLoading(false);
   }
@@ -154,12 +154,30 @@ export default function MyBookings() {
     }
   }
 
+  // A trip "has started" the moment its departure_time is reached — this is
+  // purely a UI convenience to hide/disable the button early; the real rule
+  // is enforced server-side in cancel_booking() so it can't be bypassed by
+  // calling the RPC directly (see trip_lifecycle_hardening_and_reminders.sql).
+  function tripHasStarted(booking) {
+    if (!booking.trips?.departure_time) return false;
+    return new Date(booking.trips.departure_time).getTime() <= Date.now();
+  }
+
   async function handleCancel(bookingId) {
     if (!confirm('Cancel this booking?')) return;
     setBusyId(bookingId); setError('');
     const { error: err } = await supabase.rpc('cancel_booking', { p_booking_id: bookingId, p_reason: 'Cancelled by passenger' });
     setBusyId(null);
-    if (err) setError(err.message); else load();
+    if (err) {
+      // Backend's own guard (belt-and-braces even though the button is
+      // already hidden once departure_time has passed — e.g. it could have
+      // ticked over between page load and click).
+      setError(err.message.includes('already started')
+        ? 'This trip has already started, so this booking can no longer be cancelled.'
+        : err.message);
+    } else {
+      load();
+    }
   }
 
   const activeTab = TABS.find(t => t.key === tab);
@@ -227,7 +245,8 @@ export default function MyBookings() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {filtered.map(b => {
-            const alreadyRated = ratedBookingIds.has(b.id);
+            const myRating = myRatings[b.id];
+            const alreadyRated = !!myRating;
             const hasTrip = !!b.trips?.id;
             const showDriverCard = ['confirmed', 'completed'].includes(b.status) && hasTrip;
             const showCompletion = b.status === 'confirmed' && b.trips?.status === 'completion_pending';
@@ -274,15 +293,25 @@ export default function MyBookings() {
                 actions={
                   <>
                     {['pending', 'confirmed'].includes(b.status) && (
-                      <button className="btn btn-sm btn-danger" disabled={busyId === b.id} onClick={() => handleCancel(b.id)}>
-                        {busyId === b.id ? <span className="spinner" /> : 'Cancel'}
-                      </button>
+                      tripHasStarted(b)
+                        ? (
+                          <span className="badge badge-gray" title="This trip has already started and can no longer be cancelled from here.">
+                            Trip started — can't cancel
+                          </span>
+                        )
+                        : (
+                          <button className="btn btn-sm btn-danger" disabled={busyId === b.id} onClick={() => handleCancel(b.id)}>
+                            {busyId === b.id ? <span className="spinner" /> : 'Cancel'}
+                          </button>
+                        )
                     )}
                     {b.status === 'completed' && !alreadyRated && hasTrip && (
                       <button className="btn btn-sm btn-primary" onClick={() => setRateTarget(b)}>⭐ Rate driver</button>
                     )}
                     {b.status === 'completed' && alreadyRated && (
-                      <span className="badge badge-gray">Rated</span>
+                      <span className="badge badge-gray" title={myRating.comment || undefined}>
+                        Rated ✓ {'★'.repeat(myRating.rating)}{'☆'.repeat(5 - myRating.rating)}
+                      </span>
                     )}
                     <button className="btn btn-sm btn-ghost" onClick={() => setReportTarget(b)}>🚩 Report</button>
                   </>

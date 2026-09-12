@@ -7,6 +7,8 @@ const RESPONSE_META = {
   accepted: { label: 'Confirmed', badge: 'badge-green' },
   declined: { label: 'Declined', badge: 'badge-danger' },
   pending: { label: 'Waiting for confirmation', badge: 'badge-amber' },
+  auto_completed: { label: 'Auto-completed (no response)', badge: 'badge-gray' },
+  admin_override: { label: 'Completed by admin', badge: 'badge-teal' },
 };
 
 function initials(name) {

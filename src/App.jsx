@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
+import GlobalNotificationCenter from './components/shared/GlobalNotificationCenter';
 
 // Public
 import Landing from './pages/Landing';
@@ -179,7 +180,13 @@ function PublicRoute({ children, preferredRole = null }) {
 // ── App ────────────────────────────────────────────────────────────────
 export default function App() {
   return (
-    <Routes>
+    <>
+      {/* Mounted once, outside <Routes>, so it survives every navigation
+          instead of remounting per-page — see GlobalNotificationCenter.jsx
+          for why this is what makes reminders/completion-requests pop up
+          "while using PamojaRide" rather than only in the bell dropdown. */}
+      <GlobalNotificationCenter />
+      <Routes>
       {/* Public */}
       <Route path="/" element={<PublicRoute><Landing /></PublicRoute>} />
       {/* Not wrapped in PublicRoute/ProtectedRoute: must be reachable by
@@ -257,6 +264,7 @@ export default function App() {
 
       {/* Fallback */}
       <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+      </Routes>
+    </>
   );
 }

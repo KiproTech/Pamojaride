@@ -12,15 +12,37 @@ function formatReviewDate(iso) {
   return new Date(iso).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+/** Small circular avatar with the same photo-or-initials fallback used
+ * everywhere else in the app (see Navbar.jsx). */
+function ReviewerAvatar({ name, picture, size }) {
+  const initials = (name || 'P').trim().split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase()).join('') || 'P';
+  return (
+    <span
+      style={{
+        width: size, height: size, borderRadius: '50%', flexShrink: 0,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'var(--primary-light, #E0E7FF)', color: 'var(--primary, #4338CA)',
+        fontSize: size * 0.4, fontWeight: 600, overflow: 'hidden',
+      }}
+    >
+      {picture
+        ? <img src={picture} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        : initials}
+    </span>
+  );
+}
+
 /**
- * Renders a driver's reviews (star rating, comment, date, privacy-safe
- * reviewer name) as a clean card list.
+ * Renders a driver's reviews (reviewer avatar + full name, star rating,
+ * comment, date) as a clean card list.
  *
  * `reviews` is the array returned by fetchDriverReviews() — each row is
- * { id, rating, comment, created_at, reviewer_display_name } from the
- * get_driver_reviews() RPC (database/driver_reviews_display.sql). That RPC
- * already excludes admin-removed reviews and never returns a reviewer's
- * phone, email, or full name — this component just renders what it's given.
+ * { id, rating, comment, created_at, reviewer_full_name, reviewer_profile_picture }
+ * from the get_driver_reviews() RPC (database/driver_reviews_display.sql /
+ * trip_lifecycle_hardening_and_reminders.sql). This component just renders
+ * whatever identity the RPC hands it, and falls back to the same
+ * photo-or-initials avatar used across the rest of the app when there's no
+ * profile picture.
  *
  * Pass `compact` for tighter spacing (e.g. inside a driver dashboard rail).
  */
@@ -58,16 +80,21 @@ export default function ReviewsList({ reviews, loading, error, compact }) {
           className="card"
           style={{ padding: compact ? 10 : 12, background: 'var(--bg-alt)', border: '1px solid var(--border)' }}
         >
-          <div className="flex-between" style={{ marginBottom: r.comment ? 6 : 2, gap: 8 }}>
-            <Stars rating={r.rating} />
+          <div className="flex-between" style={{ marginBottom: 6, gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+              <ReviewerAvatar name={r.reviewer_full_name} picture={r.reviewer_profile_picture} size={compact ? 26 : 30} />
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {r.reviewer_full_name || 'Passenger'}
+              </span>
+            </div>
             <span style={{ fontSize: 11.5, color: 'var(--text-muted)', flexShrink: 0, whiteSpace: 'nowrap' }}>
               {formatReviewDate(r.created_at)}
             </span>
           </div>
+          <Stars rating={r.rating} />
           {r.comment && (
-            <p style={{ fontSize: 13, margin: '0 0 6px', color: 'var(--text)', wordBreak: 'break-word' }}>{r.comment}</p>
+            <p style={{ fontSize: 13, margin: '6px 0 0', color: 'var(--text)', wordBreak: 'break-word' }}>{r.comment}</p>
           )}
-          <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>— {r.reviewer_display_name || 'Passenger'}</span>
         </div>
       ))}
     </div>

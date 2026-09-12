@@ -35,6 +35,8 @@ const TYPE_ICON = {
   trip_completed: '🏁',
   trip_completion_confirmed_by_passenger: '✅',
   trip_completion_declined_by_passenger: '❌',
+  trip_completion_auto_completed: '⏱️',
+  trip_completed_by_admin: '🛡️',
   kyc_submitted: '🪪',
   kyc_approved: '✅',
   kyc_rejected: '⛔',
@@ -158,7 +160,7 @@ export function notificationHref(notif, { isAdmin, portal }) {
   // Accept/Decline card (passenger) or the passenger's status (driver)
   // is shown — never the pre-booking Trip Details page.
   if (
-    ['trip_completion_pending', 'trip_completed', 'trip_completion_confirmed_by_passenger', 'trip_completion_declined_by_passenger', 'booking_no_show'].includes(notif.type)
+    ['trip_completion_pending', 'trip_completed', 'trip_completion_confirmed_by_passenger', 'trip_completion_declined_by_passenger', 'trip_completion_auto_completed', 'trip_completed_by_admin', 'booking_no_show'].includes(notif.type)
     && notif.data?.booking_id && (portal === 'driver' || portal === 'passenger')
   ) {
     return { pathname: `/${portal}/bookings/${notif.data.booking_id}` };
@@ -168,6 +170,9 @@ export function notificationHref(notif, { isAdmin, portal }) {
   }
   if ((notif.type?.startsWith('trip_') || notif.type === 'rating_received') && notif.data?.trip_id && portal === 'passenger') {
     return { pathname: `/passenger/trips/${notif.data.trip_id}` };
+  }
+  if (notif.type?.startsWith('trip_') && portal === 'driver') {
+    return { pathname: '/driver/trips' };
   }
   if (notif.type?.startsWith('kyc_') || notif.type === 'verification_required') {
     return portal === 'driver' ? { pathname: '/driver/verification' } : null;
